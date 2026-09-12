@@ -79,6 +79,34 @@ class ZenProviderCopyTest {
     }
 
     @Test
+    fun chatToolsUseNestedFunctionShape() {
+        val provider = ZenProvider(http = { _, _, _ -> "{}" }, apiKey = "K", model = "nemotron-3-ultra-free")
+        val tool = LlmTool("test_tool", "test", """{"type":"object","properties":{}}""")
+        val body = provider.buildRequestJson(
+            "nemotron-3-ultra-free", "s",
+            listOf(ChatMessage(ChatRole.USER, "hi")), listOf(tool), 0.7, 50
+        )
+        // OpenAI chat/completions shape: tools[].function.{name,description,parameters}
+        assertTrue(body.contains("\"function\":{\"name\":\"test_tool\"") || body.contains("\"function\": {\"name\": \"test_tool\"") || body.contains("\"function\""))
+        assertTrue(body.contains("\"name\":\"test_tool\""))
+        // Must NOT be flat at top level of the tool object for chat path:
+        // flat would be {"type":"function","name":...} without "function" key.
+        assertTrue(body.contains("\"function\""))
+    }
+
+    @Test
+    fun responsesToolsUseFlatShape() {
+        val provider = ZenProvider(http = { _, _, _ -> "{}" }, apiKey = "K", model = "muse-spark-1.3-contributor-free")
+        val tool = LlmTool("test_tool", "test", """{"type":"object","properties":{}}""")
+        val body = provider.buildResponsesJson(
+            "muse-spark-1.3-contributor-free", "s",
+            listOf(ChatMessage(ChatRole.USER, "hi")), listOf(tool), 0.7, 50
+        )
+        assertTrue(body.contains("\"name\":\"test_tool\""))
+        assertTrue(body.contains("max_output_tokens"))
+    }
+
+    @Test
     fun freeIdsDetectedLiveFromSuffix() {
         val body = """{"data":[{"id":"big-pickle"},{"id":"mimo-v2.5-free"},{"id":"gpt-x"},{"id":"muse-spark-1.3-contributor-free"}]}"""
         val free = ZenProvider.parseFreeModelIds(body)

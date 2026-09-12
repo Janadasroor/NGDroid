@@ -108,7 +108,7 @@ class ZenProvider(
             put("model", JsonPrimitive(normalizeModelId(model)))
             put("messages", JsonArray(msgs))
             if (tools.isNotEmpty()) {
-                put("tools", JsonArray(tools.map { buildFunctionTool(it) }))
+                put("tools", JsonArray(tools.map { buildChatFunctionTool(it) }))
                 put("tool_choice", JsonPrimitive("auto"))
             }
             put("temperature", JsonPrimitive(temp))
@@ -153,11 +153,11 @@ class ZenProvider(
             put("model", JsonPrimitive(normalizeModelId(model)))
             put("input", JsonArray(input))
             if (tools.isNotEmpty()) {
-                put("tools", JsonArray(tools.map { buildFunctionTool(it) }))
+                put("tools", JsonArray(tools.map { buildResponsesFunctionTool(it) }))
                 put("tool_choice", JsonPrimitive("auto"))
             }
             put("temperature", JsonPrimitive(temp))
-            put("max_tokens", JsonPrimitive(maxTokens))
+            put("max_output_tokens", JsonPrimitive(maxTokens))
         }
         return root.toString()
     }
@@ -189,7 +189,32 @@ class ZenProvider(
         }
     }
 
-    private fun buildFunctionTool(t: LlmTool): JsonObject {
+    /**
+     * OpenAI `chat/completions` tool shape: `{"type":"function","function":{...}}`.
+     * The gateway rejects the flat `/responses` shape here with
+     * HTTP 400 `Upstream request failed: [400] Provider returned error`
+     * (verified live on nemotron-3-ultra-free).
+     */
+    private fun buildChatFunctionTool(t: LlmTool): JsonObject {
+        return buildJsonObject {
+            put("type", JsonPrimitive("function"))
+            put("function", buildJsonObject {
+                put("name", JsonPrimitive(t.name))
+                put("description", JsonPrimitive(t.description))
+                val paramsEl =
+                    runCatching { json.parseToJsonElement(t.parametersJsonSchema) }.getOrElse {
+                        buildJsonObject { put("type", JsonPrimitive("object")) }
+                    }
+                put("parameters", paramsEl)
+            })
+        }
+    }
+
+    /**
+     * OpenAI `/responses` tool shape: flat `{type:function,name,description,parameters}`.
+     * Verified live on muse-spark-1.3-contributor-free (HTTP 200).
+     */
+    private fun buildResponsesFunctionTool(t: LlmTool): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("function"))
             put("name", JsonPrimitive(t.name))
@@ -198,10 +223,6 @@ class ZenProvider(
                 buildJsonObject { put("type", JsonPrimitive("object")) }
             }
             put("parameters", paramsEl)
-            // NOTE: /responses shape differs slightly from chat shape
-            // ({name,description,parameters} flat vs nested under "function").
-            // The gateway translated the flat shape fine in live probes, and
-            // chat/completions keeps its own nested shape via buildRequestJson.
         }
     }
 
@@ -299,13 +320,14 @@ class ZenProvider(
         const val UNSUPPORTED_RESPONSES_ONLY_MODEL = "muse-spark-1.3-contributor-free"
 
         /**
-         * True for ids that only serve the /responses endpoint (all `muse-spark-*-free`).
-         * Proven by curl: they return HTTP 500 "Internal server error" on /chat/completions
-         * and complete normally on /responses.
+         * True for models that serve the /responses endpoint (`muse-spark-*`, `gpt-*`, `grok-*`).
+         * Proven by curl: `muse-spark` returns HTTP 500 on /chat/completions and 200 on /responses.
          */
         fun isResponsesOnlyModel(id: String): Boolean {
             val low = id.trim().lowercase()
-            return low.startsWith("muse-spark-") && low.endsWith("-free")
+            return low.startsWith("muse-spark-") ||
+                   low.startsWith("gpt-") ||
+                   low.startsWith("grok-")
         }
 
         /**
