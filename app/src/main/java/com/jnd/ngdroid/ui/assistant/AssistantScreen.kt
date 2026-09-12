@@ -43,11 +43,11 @@ import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -130,13 +130,21 @@ fun AssistantScreen(
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
 
+    // ChatGPT-style: tool progress (SYSTEM) lives only inside the thinking
+    // expander, never as separate rows in the message list.
+    val visibleMessages = remember(messages) {
+        messages.filter { it.role != ChatRoleUi.SYSTEM }
+    }
+    val toolSteps = remember(messages) { liveThinkingSteps(messages) }
+    val pastSteps = remember(messages) { stepsByAssistant(messages) }
+
     LaunchedEffect(settings.provider) {
         // Fresh provider -> fetch its catalog so the dropdown is never stale.
         assistantViewModel.refreshModels()
     }
 
-    LaunchedEffect(messages.size, isThinking) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(visibleMessages.size, isThinking) {
+        if (visibleMessages.isNotEmpty()) listState.animateScrollToItem(visibleMessages.size - 1)
     }
 
     fun currentBridge(): SimBridge {
@@ -291,10 +299,10 @@ fun AssistantScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
-                items(messages, key = { it.id }) { msg ->
+                items(visibleMessages, key = { it.id }) { msg ->
                     when (msg.role) {
                         ChatRoleUi.USER -> {
                             val isEditing = editingMsgId == msg.id
@@ -358,140 +366,88 @@ fun AssistantScreen(
                                     ) {
                                         Text(
                                             msg.text,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                            color = MaterialTheme.colorScheme.onPrimary
+                                            modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp),
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            style = MaterialTheme.typography.bodyLarge
                                         )
                                     }
                                 }
                             }
                         }
-                        ChatRoleUi.SYSTEM -> Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ChatRoleUi.SYSTEM -> { /* folded into ThinkingRow expander */ }
+                        ChatRoleUi.ASSISTANT -> Column(
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.tertiary)
-                            )
-                            Text(
-                                msg.text,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                        ChatRoleUi.ASSISTANT -> Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                                contentAlignment = Alignment.Center
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(
-                                    Icons.Default.SmartToy,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(18.dp)
+                                Text(
+                                    "Response",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
                                 )
-                            }
-                            Surface(
-                                tonalElevation = 1.dp,
-                                shape = RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
+                                if (!isThinking) {
+                                    IconButton(
+                                        onClick = {
+                                            assistantViewModel.regenerate(currentBridge())
+                                        },
+                                        modifier = Modifier.size(28.dp)
                                     ) {
-                                        Text(
-                                            "Response",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        if (!isThinking) {
-                                            IconButton(
-                                                onClick = {
-                                                    assistantViewModel.regenerate(currentBridge())
-                                                },
-                                                modifier = Modifier.size(28.dp)
-                                            ) {
-                                                Icon(
-                                                    Icons.Default.Refresh,
-                                                    contentDescription = "Regenerate response",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                    Markdown(
-                                        msg.text,
-                                        imageTransformer = AssistantImageTransformer
-                                    )
-                                    val blocks = remember(msg.text) { extractCodeBlocks(msg.text) }
-                                    blocks.forEach { block ->
-                                        Spacer(Modifier.height(8.dp))
-                                        CodeBlockCard(
-                                            code = block,
-                                            onCopy = {
-                                                copyToClipboard(context, block)
-                                                Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                                            },
-                                            onApply = {
-                                                onApplyNetlist(block)
-                                                onNavigateToEditor?.invoke()
-                                                Toast.makeText(context, "Applied to editor", Toast.LENGTH_SHORT).show()
-                                            },
-                                            onApplyAndRun = {
-                                                onApplyAndRun(block)
-                                                onNavigateToPlot?.invoke()
-                                            }
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = "Regenerate response",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            // Finished thought record: stays expandable after the run,
+                            // so tool activity can be reviewed again later.
+                            val doneSteps = pastSteps[msg.id].orEmpty()
+                            if (doneSteps.isNotEmpty()) {
+                                ThinkingRow(
+                                    title = pastThinkingTitle(doneSteps),
+                                    steps = doneSteps.map { it.text }
+                                )
+                                Spacer(Modifier.height(2.dp))
+                            }
+                            Markdown(
+                                msg.text,
+                                imageTransformer = AssistantImageTransformer
+                            )
+                            val blocks = remember(msg.text) { extractCodeBlocks(msg.text) }
+                            blocks.forEach { block ->
+                                Spacer(Modifier.height(10.dp))
+                                CodeBlockCard(
+                                    code = block,
+                                    onCopy = {
+                                        copyToClipboard(context, block)
+                                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onApply = {
+                                        onApplyNetlist(block)
+                                        onNavigateToEditor?.invoke()
+                                        Toast.makeText(context, "Applied to editor", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onApplyAndRun = {
+                                        onApplyAndRun(block)
+                                        onNavigateToPlot?.invoke()
+                                    }
+                                )
                             }
                         }
                     }
                 }
                 if (isThinking) {
                     item {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(16.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            }
-                            Surface(
-                                tonalElevation = 1.dp,
-                                shape = RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp)
-                            ) {
-                                Text(
-                                    statusLine ?: "Thinking…",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                                )
-                            }
-                        }
+                        ThinkingRow(
+                            title = thinkingTitle(statusLine, toolSteps.lastOrNull()?.text),
+                            steps = toolSteps.map { it.text }
+                        )
                     }
                 }
             }
@@ -693,6 +649,74 @@ private fun ModelDropdownRow(
                         text = { Text("Browse all ${models.size}…") },
                         onClick = onBrowseAll
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * ChatGPT-style thinking row: no spinner — an expand button toggles the
+ * working details (tool steps). Collapsed shows the dynamic title
+ * ("Validating…", "Applying…") or the finished summary ("Validated • 4 steps").
+ */
+@Composable
+private fun ThinkingRow(
+    title: String,
+    steps: List<String>,
+    emptyHint: String = "Working through your request…"
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 4.dp, vertical = 6.dp)
+        ) {
+            IconButton(
+                onClick = { expanded = !expanded },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Column(
+                modifier = Modifier.padding(start = 40.dp, end = 8.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (steps.isEmpty()) {
+                    Text(
+                        emptyHint,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    steps.forEach { step ->
+                        Text(
+                            step,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
