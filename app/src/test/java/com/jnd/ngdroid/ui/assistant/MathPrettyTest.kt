@@ -78,6 +78,18 @@ class MathPrettyTest {
     }
 
     @Test
+    fun doubleEscapedBackslashStillRenders() {
+        // Models sometimes send `2\\pi`; collapse so the command matches.
+        assertEquals("f_c = (1)/(2π RC)", prettyMath("f_c = \\frac{1}{2\\\\pi RC}"))
+    }
+
+    @Test
+    fun doubleBarAndMidMapToUnicode() {
+        assertEquals("‖x‖", prettyMath("\\|x\\|"))
+        assertEquals("a | b", prettyMath("a \\mid b"))
+    }
+
+    @Test
     fun neverThrowsOnGarbage() {
         assertEquals("", prettyMath(""))
         assertEquals("unclosed", prettyMath("\$\$unclosed"))

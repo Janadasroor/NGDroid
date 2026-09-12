@@ -71,11 +71,36 @@ object ChatJsonCodec {
         }
     }
 
-    private fun escape(s: String): String =
-        s.replace("\\", "\\\\").replace("|", "\\p").replace("\n", "\\n")
+    private fun escape(s: String): String = buildString {
+        for (c in s) {
+            when (c) {
+                '\\' -> append("\\\\")
+                '|' -> append("\\p")
+                '\n' -> append("\\n")
+                else -> append(c)
+            }
+        }
+    }
 
-    private fun unescape(s: String): String =
-        s.replace("\\n", "\n").replace("\\p", "|").replace("\\\\", "\\")
+    /**
+     * Single-pass decode: chained replaces corrupted `\` + `p`/`n` sequences
+     * (e.g. LaTeX `\pi` decoded as `|i`). Each `\x` pair resolves atomically.
+     */
+    private fun unescape(s: String): String = buildString {
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '\\' && i + 1 < s.length) {
+                when (s[i + 1]) {
+                    '\\' -> { append('\\'); i += 2; continue }
+                    'p' -> { append('|'); i += 2; continue }
+                    'n' -> { append('\n'); i += 2; continue }
+                }
+            }
+            append(c)
+            i++
+        }
+    }
 }
 
 class ChatHistoryStore(private val context: Context) {

@@ -28,6 +28,9 @@ private fun prettyMathOrThrow(latex: String): String {
 
     // Matrices: keep cells readable in one flowing line.
     s = replaceEnvironments(s)
+    // Models often double-escape backslashes (`2\\pi`); collapse to one so
+    // commands below still match. (Row breaks were consumed above.)
+    s = s.replace("\\\\", "\\")
     // \frac{a}{b} → a⁄b (or (a)/(b) when complex).
     s = replaceFractions(s)
     // \sqrt[n]{x} → ⁿ√(x).
@@ -173,6 +176,7 @@ private val SYMBOLS: Map<String, String> = mapOf(
     "\\dots" to "…", "\\cdots" to "⋯", "\\ldots" to "…", "\\vdots" to "⋮",
     "\\hbar" to "ℏ", "\\ell" to "ℓ", "\\Re" to "ℜ", "\\Im" to "ℑ",
     "\\aleph" to "ℵ", "\\emptyset" to "∅", "\\angle" to "∠",
+    "\\|" to "‖", "\\mid" to "|", "\\vert" to "|", "\\parallel" to "∥",
     "\\log" to "log", "\\ln" to "ln", "\\exp" to "exp",
     "\\sin" to "sin", "\\cos" to "cos", "\\tan" to "tan",
     "\\min" to "min", "\\max" to "max", "\\sup" to "sup", "\\inf" to "inf",

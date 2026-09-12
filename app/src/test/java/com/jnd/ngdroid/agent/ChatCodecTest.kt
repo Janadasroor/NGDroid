@@ -45,6 +45,22 @@ class ChatCodecTest {
     }
 
     @Test
+    fun backslashSequencesRoundTrip() {
+        // Regression: old chained unescape turned `\pi` into `|i`.
+        val texts = listOf(
+            "\$\$f_c = \\frac{1}{2\\pi RC}\$\$",
+            "double-escaped \\\\\\\\pi stays literal",
+            "\\nabla \\neq \\nu and C:\\new\\path",
+            "pipe \\p stays \\p, not a separator"
+        )
+        for (t in texts) {
+            val s = ChatSession(id = "x", messages = listOf(StoredMsg(text = t)))
+            val decoded = ChatJsonCodec.decode(ChatJsonCodec.encode(listOf(s)))
+            assertEquals(t, decoded[0].messages[0].text)
+        }
+    }
+
+    @Test
     fun blankDecodesToEmpty() {
         assertTrue(ChatJsonCodec.decode("").isEmpty())
         assertTrue(ChatJsonCodec.decode("   ").isEmpty())

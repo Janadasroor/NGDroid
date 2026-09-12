@@ -121,6 +121,7 @@ fun AssistantScreen(
     val freeModels by assistantViewModel.freeModels.collectAsState()
     val sessions by assistantViewModel.sessions.collectAsState()
     val activeChatId by assistantViewModel.activeChatId.collectAsState()
+    val workingIds by assistantViewModel.workingIds.collectAsState()
     var input by remember { mutableStateOf("") }
     var showModels by remember { mutableStateOf(false) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
@@ -175,6 +176,7 @@ fun AssistantScreen(
                 sessions = sessions,
                 activeChatId = activeChatId,
                 providerName = settings.provider.displayName,
+                workingIds = workingIds,
                 onNewChat = {
                     assistantViewModel.newChat()
                     scope.launch { drawerState.close() }

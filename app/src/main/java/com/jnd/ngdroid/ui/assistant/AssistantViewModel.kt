@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
 enum class ChatRoleUi { USER, ASSISTANT, SYSTEM }
@@ -77,8 +79,28 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     private val _freeModels = MutableStateFlow<List<String>>(emptyList())
     val freeModels: StateFlow<List<String>> = _freeModels.asStateFlow()
 
-    private var runJob: Job? = null
-    private val history = mutableListOf<ChatMessage>()
+    /**
+     * Live per-chat state. Each chat keeps its own transcript, agent history
+     * and run job, so switching chats never cancels another chat's work —
+     * every chat completes in the background.
+     */
+    private class ChatRuntime(
+        var messages: List<ChatMsg> = emptyList(),
+        val history: MutableList<ChatMessage> = mutableListOf(),
+        var job: Job? = null,
+        var thinking: Boolean = false,
+        var status: String? = null
+    )
+    private val runtimes = mutableMapOf<String, ChatRuntime>()
+    private fun runtime(id: String): ChatRuntime = runtimes.getOrPut(id) { ChatRuntime() }
+
+    /** Ids with a live run job — the drawer shows a green dot for these. */
+    private val _workingIds = MutableStateFlow<Set<String>>(emptySet())
+    val workingIds: StateFlow<Set<String>> = _workingIds.asStateFlow()
+
+    private fun refreshWorkingIds() {
+        _workingIds.value = runtimes.filterValues { it.job?.isActive == true }.keys.toSet()
+    }
 
     // ---- Chat history ----
     private val chatStore = ChatHistoryStore(application)
@@ -90,7 +112,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     private val _activeChatId = MutableStateFlow<String?>(null)
     val activeChatId: StateFlow<String?> = _activeChatId.asStateFlow()
 
-    private var persistJob: Job? = null
+    private val persistJobs = mutableMapOf<String, Job?>()
+    /** Serializes storage writes: concurrent background chats must not clobber each other. */
+    private val persistMutex = Mutex()
 
     /**
      * True once the persisted settings arrived. The auto-pick below must wait
@@ -148,98 +172,145 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Appends the offline notice once (no spam on repeated taps). Returns false. */
     private fun notifyOffline(): Boolean {
-        if (_messages.value.lastOrNull()?.text != OFFLINE_NOTICE) {
-            append(ChatMsg(role = ChatRoleUi.ASSISTANT, text = OFFLINE_NOTICE))
+        val id = ensureActiveId()
+        val rt = runtime(id)
+        if (rt.messages.lastOrNull()?.text != OFFLINE_NOTICE) {
+            appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = OFFLINE_NOTICE))
         }
         return false
     }
 
-    /** Persist the working set into the session list (debounced). */
+    /**
+     * Every chat owns a stable id from its first send: the session row is
+     * created eagerly so background jobs always have a key to report under.
+     */
+    private fun ensureActiveId(): String {
+        _activeChatId.value?.let { return it }
+        val now = System.currentTimeMillis()
+        val s = _settings.value
+        val created = ChatSession(
+            title = "New chat",
+            providerName = s.provider.displayName,
+            model = s.selectedModel.trim(),
+            createdAtMillis = now,
+            updatedAtMillis = now,
+            messages = emptyList()
+        )
+        cachedSessions = (listOf(created) + cachedSessions)
+            .sortedByDescending { it.updatedAtMillis }
+        _sessions.value = cachedSessions
+        _activeChatId.value = created.id
+        viewModelScope.launch {
+            try {
+                persistMutex.withLock {
+                    chatStore.setActiveId(created.id)
+                    chatStore.saveChats(cachedSessions)
+                }
+            } catch (_: Exception) { }
+        }
+        return created.id
+    }
+
+    /** Append to one chat; mirrors into the visible list when it is active. */
+    private fun appendToChat(id: String, msg: ChatMsg) {
+        val rt = runtime(id)
+        rt.messages = rt.messages + msg
+        if (id == _activeChatId.value) _messages.value = rt.messages
+        schedulePersistFor(id)
+    }
+
+    private fun setChatThinking(id: String, thinking: Boolean) {
+        val rt = runtime(id)
+        rt.thinking = thinking
+        if (!thinking) rt.status = null
+        if (id == _activeChatId.value) {
+            _isThinking.value = thinking
+            if (!thinking) _statusLine.value = null
+        }
+        refreshWorkingIds()
+    }
+
+    private fun setChatStatus(id: String, status: String?) {
+        val rt = runtime(id)
+        rt.status = status
+        if (id == _activeChatId.value) _statusLine.value = status
+    }
+
+    /** Persist the visible working set (delegates to the active chat). */
     private fun schedulePersist() {
-        persistJob?.cancel()
-        persistJob = viewModelScope.launch {
+        _activeChatId.value?.let { schedulePersistFor(it) }
+    }
+
+    /** Persist one chat's runtime transcript (debounced per chat). */
+    private fun schedulePersistFor(id: String) {
+        persistJobs[id]?.cancel()
+        persistJobs[id] = viewModelScope.launch {
             delay(600)
-            persistNow()
+            try { persistChatNow(id) } catch (_: Exception) { }
         }
     }
 
-    private suspend fun persistNow() {
-        try {
-            val current = _messages.value
-            val activeId = _activeChatId.value
-            var list = cachedSessions.toMutableList()
-            if (current.isEmpty()) {
-                // Empty working set: just drop a stale active id, keep stored rows.
-                if (activeId != null && list.none { it.id == activeId }) {
-                    _activeChatId.value = null
-                    chatStore.setActiveId(null)
-                }
-                return
+    private suspend fun persistChatNow(id: String) = persistMutex.withLock {
+        val rt = runtimes[id]
+        val current = rt?.messages ?: if (id == _activeChatId.value) _messages.value else return
+        var list = cachedSessions.toMutableList()
+        if (current.isEmpty()) {
+            // Empty working set: just drop a stale active id, keep stored rows.
+            if (_activeChatId.value == id && list.none { it.id == id }) {
+                _activeChatId.value = null
+                chatStore.setActiveId(null)
             }
-            val now = System.currentTimeMillis()
-            val s = _settings.value
-            if (activeId == null) {
-                val firstUser = current.firstOrNull { it.role == ChatRoleUi.USER }?.text.orEmpty()
-                val created = ChatSession(
-                    title = buildTitle(firstUser),
-                    providerName = s.provider.displayName,
-                    model = s.selectedModel.trim(),
-                    createdAtMillis = now,
-                    updatedAtMillis = now,
-                    messages = current.map { it.toStored() }
-                )
-                list.add(0, created)
-                _activeChatId.value = created.id
-                chatStore.setActiveId(created.id)
-            } else {
-                val idx = list.indexOfFirst { it.id == activeId }
-                val updated = if (idx >= 0) {
-                    list[idx].copy(
-                        updatedAtMillis = now,
-                        providerName = s.provider.displayName,
-                        model = s.selectedModel.trim(),
-                        messages = current.map { it.toStored() }
-                    )
-                } else {
-                    val firstUser = current.firstOrNull { it.role == ChatRoleUi.USER }?.text.orEmpty()
-                    ChatSession(
-                        id = activeId,
-                        title = buildTitle(firstUser),
-                        providerName = s.provider.displayName,
-                        model = s.selectedModel.trim(),
-                        createdAtMillis = now,
-                        updatedAtMillis = now,
-                        messages = current.map { it.toStored() }
-                    )
-                }
-                if (idx >= 0) list[idx] = updated else list.add(0, updated)
-            }
-            cachedSessions = list.sortedByDescending { it.updatedAtMillis }
-            _sessions.value = cachedSessions
-            chatStore.saveChats(cachedSessions)
-        } catch (_: Exception) { }
+            return
+        }
+        val now = System.currentTimeMillis()
+        val s = _settings.value
+        val idx = list.indexOfFirst { it.id == id }
+        val firstUser = current.firstOrNull { it.role == ChatRoleUi.USER }?.text.orEmpty()
+        // Retitle bare rows once the first prompt lands ("New chat" → prompt).
+        val title = buildTitle(firstUser)
+        val updated = if (idx >= 0) {
+            list[idx].copy(
+                title = title,
+                updatedAtMillis = now,
+                providerName = s.provider.displayName,
+                model = s.selectedModel.trim(),
+                messages = current.map { it.toStored() }
+            )
+        } else {
+            ChatSession(
+                id = id,
+                title = title,
+                providerName = s.provider.displayName,
+                model = s.selectedModel.trim(),
+                createdAtMillis = now,
+                updatedAtMillis = now,
+                messages = current.map { it.toStored() }
+            )
+        }
+        if (idx >= 0) list[idx] = updated else list.add(0, updated)
+        cachedSessions = list.sortedByDescending { it.updatedAtMillis }
+        _sessions.value = cachedSessions
+        chatStore.saveChats(cachedSessions)
     }
 
-    private fun rebuildHistoryFromMessages() {
-        history.clear()
-        for (m in _messages.value) {
+    private fun historyFrom(messages: List<ChatMsg>): List<ChatMessage> {
+        val out = mutableListOf<ChatMessage>()
+        for (m in messages) {
             when (m.role) {
-                ChatRoleUi.USER -> history.add(ChatMessage(ChatRole.USER, m.text))
-                ChatRoleUi.ASSISTANT -> history.add(ChatMessage(ChatRole.ASSISTANT, m.text))
+                ChatRoleUi.USER -> out.add(ChatMessage(ChatRole.USER, m.text))
+                ChatRoleUi.ASSISTANT -> out.add(ChatMessage(ChatRole.ASSISTANT, m.text))
                 ChatRoleUi.SYSTEM -> { /* tool progress lines: UI-only */ }
             }
         }
+        return out
     }
 
-    /** Start a fresh chat; persists the current one first when non-empty. */
+    /**
+     * Start a fresh chat. Other chats keep working in the background —
+     * nothing is cancelled; their green dots stay on in the drawer.
+     */
     fun newChat() {
-        if (_messages.value.isNotEmpty()) {
-            viewModelScope.launch { persistNow() }
-        }
-        runJob?.cancel()
-        runJob = null
-        persistJob?.cancel()
-        history.clear()
+        _activeChatId.value?.let { schedulePersistFor(it) }
         _messages.value = emptyList()
         _statusLine.value = null
         _isThinking.value = false
@@ -249,20 +320,26 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Resume a saved chat: loads its transcript and rebuilds agent history. */
+    /**
+     * Resume a saved chat: loads its transcript and live run state.
+     * Never blocks on — and never cancels — other chats' background work.
+     * A chat with a running job streams its progress here once opened.
+     */
     fun openChat(id: String, persistCurrent: Boolean = true, restoreModel: Boolean = true) {
-        if (_isThinking.value) return
-        if (persistCurrent && _messages.value.isNotEmpty() && _activeChatId.value != id) {
-            viewModelScope.launch { persistNow() }
-        }
+        if (id == _activeChatId.value) return
+        val cur = _activeChatId.value
+        if (persistCurrent && cur != null) schedulePersistFor(cur)
         val session = cachedSessions.firstOrNull { it.id == id } ?: return
-        runJob?.cancel()
-        runJob = null
-        persistJob?.cancel()
-        _messages.value = session.messages.map { it.toUi() }
-        rebuildHistoryFromMessages()
-        _statusLine.value = null
-        _isThinking.value = false
+        val rt = runtime(id)
+        if (rt.messages.isEmpty()) {
+            // First open since process start: hydrate from storage.
+            rt.messages = session.messages.map { it.toUi() }
+            rt.history.clear()
+            rt.history.addAll(historyFrom(rt.messages))
+        }
+        _messages.value = rt.messages
+        _isThinking.value = rt.thinking
+        _statusLine.value = rt.status
         _activeChatId.value = id
         // Resume with the chat's own model: follow-ups should run on the same
         // model the conversation started with, not whatever is selected now.
@@ -283,19 +360,20 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Delete a whole chat; clears the working set when it was active. */
+    /** Delete a whole chat; cancels its background job too. Other chats are untouched. */
     fun deleteChat(id: String) {
         viewModelScope.launch {
             try {
+                runtimes[id]?.job?.cancel()
+                runtimes.remove(id)
+                persistJobs[id]?.cancel()
+                persistJobs.remove(id)
+                refreshWorkingIds()
                 val list = cachedSessions.filterNot { it.id == id }
                 cachedSessions = list
                 _sessions.value = list
-                chatStore.saveChats(list)
+                persistMutex.withLock { chatStore.saveChats(list) }
                 if (_activeChatId.value == id) {
-                    runJob?.cancel()
-                    runJob = null
-                    persistJob?.cancel()
-                    history.clear()
                     _messages.value = emptyList()
                     _statusLine.value = null
                     _isThinking.value = false
@@ -358,11 +436,13 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Stop the visible chat's run. Background chats keep working. */
     fun stopGenerating() {
-        runJob?.cancel()
-        runJob = null
-        _isThinking.value = false
-        _statusLine.value = null
+        val id = _activeChatId.value ?: return
+        val rt = runtimes[id] ?: return
+        rt.job?.cancel()
+        rt.job = null
+        setChatThinking(id, false)
     }
 
     private fun buildProvider(s: AgentSettings, key: String, model: String) = when (s.provider) {
@@ -436,19 +516,23 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     /**
      * Sends a chat turn. Returns true when the turn started (caller clears
-     * its input); false when nothing was sent (blank, busy, or offline —
-     * offline also posts a one-time notice, input is kept).
+     * its input); false when nothing was sent (blank, this chat busy, or
+     * offline — offline also posts a one-time notice, input is kept).
+     * Other chats' background runs are never affected.
      */
     fun sendMessage(text: String, simBridge: SimBridge): Boolean {
         val clean = text.trim()
-        if (clean.isEmpty() || _isThinking.value) return false
+        if (clean.isEmpty()) return false
         if (!netMonitor.isOnline.value) return notifyOffline()
+        val id = ensureActiveId()
+        if (runtime(id).thinking) return false
         val s = _settings.value
         val key = s.activeApiKey()
-        append(ChatMsg(role = ChatRoleUi.USER, text = clean))
+        appendToChat(id, ChatMsg(role = ChatRoleUi.USER, text = clean))
         val model = s.selectedModel.trim()
         if (model.isEmpty()) {
-            append(
+            appendToChat(
+                id,
                 ChatMsg(
                     role = ChatRoleUi.ASSISTANT,
                     text = "No model selected yet. Open the model menu above and pick one " +
@@ -460,7 +544,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         // Free Zen models work without any key (Bearer public + session header);
         // anything else needs the provider key from Settings.
         if (key.isEmpty() && zenNeedsKey(model)) {
-            append(
+            appendToChat(
+                id,
                 ChatMsg(
                     role = ChatRoleUi.ASSISTANT,
                     text = "This model needs your ${s.provider.displayName} API key. " +
@@ -469,58 +554,62 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             )
             return true
         }
-        runAgentTurn(clean, s, key, model, simBridge)
+        runAgentTurn(id, clean, s, key, model, simBridge)
         return true
     }
 
     /**
      * Edit a user prompt end-to-end: truncate everything after it, replace its
-     * text, then regenerate from that point. Drops any in-flight run.
+     * text, then regenerate from that point. Drops this chat's in-flight run;
+     * other chats are untouched.
      * Returns false when nothing was sent (offline keeps the draft open).
      */
     fun editAndResend(msgId: String, newText: String, simBridge: SimBridge): Boolean {
         val clean = newText.trim()
-        if (clean.isEmpty() || _isThinking.value) return false
+        val id = _activeChatId.value ?: return false
+        val rt = runtime(id)
+        if (clean.isEmpty() || rt.thinking) return false
         if (!netMonitor.isOnline.value) return notifyOffline()
-        val current = _messages.value
-        val idx = current.indexOfFirst { it.id == msgId && it.role == ChatRoleUi.USER }
+        val idx = rt.messages.indexOfFirst { it.id == msgId && it.role == ChatRoleUi.USER }
         if (idx < 0) return false
-        runJob?.cancel()
-        runJob = null
-        val truncated = truncateAfter(current, msgId).toMutableList()
+        rt.job?.cancel()
+        rt.job = null
+        val truncated = truncateAfter(rt.messages, msgId).toMutableList()
         truncated[idx] = truncated[idx].copy(text = clean)
+        rt.messages = truncated
         _messages.value = truncated
-        rebuildHistoryFromMessages()
+        rt.history.clear()
+        rt.history.addAll(historyFrom(truncated))
         // Drop the trailing USER turn from agent history; runAgentTurn re-adds it.
-        if (history.isNotEmpty() && history.last().role == ChatRole.USER) {
-            history.removeAt(history.size - 1)
+        if (rt.history.isNotEmpty() && rt.history.last().role == ChatRole.USER) {
+            rt.history.removeAt(rt.history.size - 1)
         }
-        schedulePersist()
+        schedulePersistFor(id)
         val s = _settings.value
         val model = s.selectedModel.trim()
         if (model.isEmpty()) {
-            append(
+            appendToChat(
+                id,
                 ChatMsg(
                     role = ChatRoleUi.ASSISTANT,
                     text = "No model selected yet. Open the model menu above and pick one."
                 )
             )
-            schedulePersist()
             return true
         }
         val key = s.activeApiKey()
         if (key.isEmpty() && zenNeedsKey(model)) {
-            append(
+            appendToChat(
+                id,
                 ChatMsg(
                     role = ChatRoleUi.ASSISTANT,
                     text = "This model needs your ${s.provider.displayName} API key. " +
                         "Open Settings → AI Assistant and paste your key — or pick a FREE model."
                 )
             )
-            schedulePersist()
             return true
         }
-        runAgentTurn(clean, s, key, model, simBridge)
+        runAgentTurn(id, clean, s, key, model, simBridge)
         return true
     }
 
@@ -535,22 +624,25 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Regenerate the last answer: resend the most recent user prompt unchanged. */
     fun regenerate(simBridge: SimBridge) {
-        if (_isThinking.value) return
+        val id = _activeChatId.value ?: return
+        if (runtime(id).thinking) return
         val lastUser = _messages.value.lastOrNull { it.role == ChatRoleUi.USER } ?: return
         editAndResend(lastUser.id, lastUser.text, simBridge)
     }
 
     private fun runAgentTurn(
+        id: String,
         clean: String,
         s: AgentSettings,
         key: String,
         model: String,
         simBridge: SimBridge
     ) {
-        runJob?.cancel()
-        runJob = viewModelScope.launch {
-            _isThinking.value = true
-            _statusLine.value = "Contacting ${s.provider.displayName}…"
+        val rt = runtime(id)
+        rt.job?.cancel()
+        rt.job = viewModelScope.launch {
+            setChatThinking(id, true)
+            setChatStatus(id, "Contacting ${s.provider.displayName}…")
             try {
                 val provider = buildProvider(s, key, model)
                 val bridge = object : SpiceAppBridge {
@@ -575,12 +667,12 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 // Raw provider failures become short friendly sentences (no JSON/URLs).
                 val answer = agent.run(
                     clean,
-                    history.toList(),
+                    rt.history.toList(),
                     { event ->
                     when (event) {
                         is AgentEvent.ToolCallEvent -> {
-                            append(ChatMsg(role = ChatRoleUi.SYSTEM, text = "Calling ${event.name}…"))
-                            _statusLine.value = "Calling ${event.name}…"
+                            appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = "Calling ${event.name}…"))
+                            setChatStatus(id, "Calling ${event.name}…")
                         }
                         is AgentEvent.Observation -> {
                             val out = event.output
@@ -590,33 +682,35 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                                     "Error: ${out.take(220)}"
                                 else -> out.take(220)
                             }
-                            append(ChatMsg(role = ChatRoleUi.SYSTEM, text = "${event.toolName}: $snippet"))
-                            _statusLine.value = null
+                            appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = "${event.toolName}: $snippet"))
+                            setChatStatus(id, null)
                         }
                         is AgentEvent.Error -> {
-                            _statusLine.value = AgentErrors.format(event.message, model).take(140)
+                            setChatStatus(id, AgentErrors.format(event.message, model).take(140))
                         }
                         is AgentEvent.Message -> { /* final text handled via return value */ }
                     }
                     },
                     errorFormatter = { AgentErrors.format(it, model) }
                 )
-                history.add(ChatMessage(ChatRole.USER, clean))
-                history.add(ChatMessage(ChatRole.ASSISTANT, answer))
-                append(ChatMsg(role = ChatRoleUi.ASSISTANT, text = answer.ifBlank { "(empty response)" }))
-                schedulePersist()
+                rt.history.add(ChatMessage(ChatRole.USER, clean))
+                rt.history.add(ChatMessage(ChatRole.ASSISTANT, answer))
+                appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = answer.ifBlank { "(empty response)" }))
             } catch (e: Exception) {
-                append(ChatMsg(role = ChatRoleUi.ASSISTANT, text = AgentErrors.format(e.message, model)))
-                schedulePersist()
+                appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = AgentErrors.format(e.message, model)))
             } finally {
-                _isThinking.value = false
-                _statusLine.value = null
+                rt.job = null
+                setChatThinking(id, false)
+                // Flush this chat to storage NOW (debounce may never fire for a
+                // background chat), then drop its in-memory transcript when it
+                // is not visible — storage holds the truth for reopening.
+                try { persistChatNow(id) } catch (_: Exception) { }
+                if (id != _activeChatId.value) {
+                    runtimes.remove(id)
+                    refreshWorkingIds()
+                }
             }
         }
-    }
-
-    private fun append(msg: ChatMsg) {
-        _messages.value += msg
-        schedulePersist()
+        refreshWorkingIds()
     }
 }

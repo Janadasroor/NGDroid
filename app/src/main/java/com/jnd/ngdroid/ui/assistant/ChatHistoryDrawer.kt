@@ -40,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.data.ChatSession
@@ -48,8 +49,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Green presence dot: marks chats with a live background run. */
+private val WorkingGreen = Color(0xFF43A047)
+
 /**
  * Saved-chats drawer: search + list + new chat. Tap resumes, long-press deletes.
+ * Chats with a live background run show a green dot next to their name.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -57,6 +62,7 @@ fun ChatHistoryDrawer(
     sessions: List<ChatSession>,
     activeChatId: String?,
     providerName: String,
+    workingIds: Set<String> = emptySet(),
     onNewChat: () -> Unit,
     onOpenChat: (String) -> Unit,
     onDeleteChat: (String) -> Unit,
@@ -179,14 +185,28 @@ fun ChatHistoryDrawer(
                 ) {
                     items(visible, key = { it.id }) { session ->
                         val selected = session.id == activeChatId
+                        val working = session.id in workingIds
                         NavigationDrawerItem(
                             label = {
                                 Column {
-                                    Text(
-                                        session.title.ifBlank { "New chat" },
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        if (working) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = WorkingGreen,
+                                                modifier = Modifier.size(8.dp)
+                                            ) { }
+                                        }
+                                        Text(
+                                            session.title.ifBlank { "New chat" },
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f, fill = false)
+                                        )
+                                    }
                                     Text(
                                         buildString {
                                             if (session.providerName.isNotBlank()) {
