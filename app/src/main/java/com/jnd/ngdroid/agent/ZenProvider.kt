@@ -362,6 +362,27 @@ class ZenProvider(
         }
 
         /**
+         * Verified dead upstream (HTTP 400 "Model is unavailable" on every
+         * route) — never auto-picked as the default. Listed explicitly so a
+         * fresh install doesn't land on a broken model.
+         */
+        val DEAD_DEFAULT_DENYLIST = setOf("deepseek-v4-flash-free")
+
+        /**
+         * First auto-pickable free id: ranked alphabetically, skipping
+         * denylisted dead ids (falls back to plain first when all are dead).
+         * Pure, testable.
+         */
+        fun autoDefault(freeIds: List<String>): String? {
+            val ranked = freeIds.map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .distinct()
+                .sortedBy { it.lowercase() }
+            return ranked.firstOrNull { it.lowercase() !in DEAD_DEFAULT_DENYLIST }
+                ?: ranked.firstOrNull()
+        }
+
+        /**
          * Live free-tier detection: ids ending in `-free` (case-insensitive).
          * No hardcoded model list needed.
          */

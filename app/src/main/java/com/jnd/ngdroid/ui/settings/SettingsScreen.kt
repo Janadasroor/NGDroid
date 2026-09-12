@@ -45,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.data.AccentColorTheme
+import com.jnd.ngdroid.data.ButtonStyle
 import com.jnd.ngdroid.data.AppSettings
 import com.jnd.ngdroid.data.SettingsRepository
 import com.jnd.ngdroid.data.ThemeMode
@@ -167,6 +168,27 @@ fun SettingsScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                Text("Button Style", style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "Applies to action buttons across the app.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ButtonStyle.entries.forEach { style ->
+                        FilterChip(
+                            selected = settings.buttonStyle == style,
+                            onClick = {
+                                onSettingsChanged { it.copy(buttonStyle = style) }
+                            },
+                            label = { Text(style.displayName) }
+                        )
                     }
                 }
             }

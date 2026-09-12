@@ -2,8 +2,10 @@ package com.jnd.ngdroid.ui
 
 import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Code
@@ -22,9 +24,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -32,9 +36,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jnd.ngdroid.data.ThemeMode
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
+import com.jnd.ngdroid.ui.theme.LocalButtonShape
+import com.jnd.ngdroid.ui.theme.buttonShapeFor
 import com.jnd.ngdroid.ui.console.ConsoleScreen
 import com.jnd.ngdroid.ui.data.DataScreen
 import com.jnd.ngdroid.ui.editor.NetlistEditorScreen
@@ -76,6 +83,11 @@ fun MainScreen(
     val primaryColor = Color(settings.accentColorTheme.hexValue)
 
     NGDroidTheme(darkTheme = isDark, accent = primaryColor) {
+        CompositionLocalProvider(
+            LocalButtonShape provides remember(settings.buttonStyle) {
+                buttonShapeFor(settings.buttonStyle)
+            }
+        ) {
         // Chat tab owns its own header (drawer + model picker); the global bar would double it.
         val hideGlobalBar = isFullscreenPlot || selectedTab == AppTab.ASSISTANT
         Scaffold(
@@ -105,7 +117,15 @@ fun MainScreen(
                         AppTab.ASSISTANT to Icons.Default.SmartToy,
                         AppTab.SETTINGS to Icons.Default.Settings
                     )
-                    NavigationBar {
+                    // Accent edge above the bar + themed container (no default look).
+                    Column {
+                        HorizontalDivider(
+                            thickness = 1.dp,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                        )
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    ) {
                         tabs.forEach { (tab, icon) ->
                             NavigationBarItem(
                                 selected = selectedTab == tab,
@@ -121,6 +141,7 @@ fun MainScreen(
                                 }
                             )
                         }
+                    }
                     }
                 }
             }
@@ -159,6 +180,7 @@ fun MainScreen(
                     )
                 }
             }
+        }
         }
     }
 }

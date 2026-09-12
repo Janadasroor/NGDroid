@@ -107,6 +107,24 @@ class ZenProviderCopyTest {
     }
 
     @Test
+    fun autoDefaultSkipsDeadModel() {
+        val free = listOf(
+            "deepseek-v4-flash-free",
+            "muse-spark-1.3-contributor-free",
+            "mimo-v2.5-free"
+        )
+        // Alphabetical first would be deepseek (dead) — must be skipped.
+        assertEquals("ling-3.0-flash-fin-free", ZenProvider.autoDefault(free + "ling-3.0-flash-fin-free"))
+        assertEquals("mimo-v2.5-free", ZenProvider.autoDefault(free))
+    }
+
+    @Test
+    fun autoDefaultFallsBackWhenOnlyDeadRemains() {
+        assertEquals("deepseek-v4-flash-free", ZenProvider.autoDefault(listOf("deepseek-v4-flash-free")))
+        assertEquals(null, ZenProvider.autoDefault(emptyList()))
+    }
+
+    @Test
     fun freeIdsDetectedLiveFromSuffix() {
         val body = """{"data":[{"id":"big-pickle"},{"id":"mimo-v2.5-free"},{"id":"gpt-x"},{"id":"muse-spark-1.3-contributor-free"}]}"""
         val free = ZenProvider.parseFreeModelIds(body)

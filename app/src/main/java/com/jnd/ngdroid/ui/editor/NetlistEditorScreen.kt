@@ -79,6 +79,7 @@ import com.jnd.ngdroid.data.PresetNetlists
 import com.jnd.ngdroid.data.SavedNetlist
 import com.jnd.ngdroid.data.SettingsRepository
 import com.jnd.ngdroid.ui.SimulationViewModel
+import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -509,7 +510,7 @@ fun NetlistEditorScreen(
                 Box(modifier = Modifier.weight(1f)) {
                         OutlinedButton(
                             onClick = { showLibraryMenu = true },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = LocalButtonShape.current,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Icon(
@@ -615,7 +616,7 @@ fun NetlistEditorScreen(
                     // Presets / Examples Button
                     OutlinedButton(
                         onClick = { showPresetMenu = true },
-                        shape = RoundedCornerShape(8.dp)
+                        shape = LocalButtonShape.current
                     ) {
                         Icon(
                             Icons.Default.Code,

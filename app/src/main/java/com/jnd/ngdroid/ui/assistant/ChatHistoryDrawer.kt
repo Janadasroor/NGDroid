@@ -2,6 +2,7 @@ package com.jnd.ngdroid.ui.assistant
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,7 +28,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.NavigationDrawerItem
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.data.ChatSession
+import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -63,7 +66,10 @@ fun ChatHistoryDrawer(
     val visible = remember(sessions, query) { filterSessions(sessions, query) }
     val timeFmt = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
 
-    ModalDrawerSheet(modifier = modifier) {
+    ModalDrawerSheet(
+        modifier = modifier,
+        drawerContainerColor = MaterialTheme.colorScheme.surfaceContainer
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxHeight()
@@ -72,13 +78,33 @@ fun ChatHistoryDrawer(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
+                Icon(
+                    Icons.Default.ChatBubbleOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
                 Text(
                     "Chats",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f)
                 )
+                if (sessions.isNotEmpty()) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Text(
+                            "${sessions.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
                 Text(
                     providerName,
                     style = MaterialTheme.typography.labelSmall,
@@ -86,8 +112,9 @@ fun ChatHistoryDrawer(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            OutlinedButton(
+            FilledTonalButton(
                 onClick = onNewChat,
+                shape = LocalButtonShape.current,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Icon(
@@ -102,8 +129,14 @@ fun ChatHistoryDrawer(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Search chats") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                placeholder = { Text("Search chats") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
                         IconButton(onClick = { query = "" }) {
@@ -112,19 +145,33 @@ fun ChatHistoryDrawer(
                     }
                 },
                 singleLine = true,
+                shape = CircleShape,
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(Modifier.height(8.dp))
             HorizontalDivider()
             Spacer(Modifier.height(4.dp))
             if (visible.isEmpty()) {
-                Text(
-                    if (sessions.isEmpty()) "No saved chats yet."
-                    else "No chats match \"$query\"",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp)
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        Icons.Default.ChatBubbleOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Text(
+                        if (sessions.isEmpty()) "No saved chats yet.\nStart a conversation to see it here."
+                        else "No chats match \"$query\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),

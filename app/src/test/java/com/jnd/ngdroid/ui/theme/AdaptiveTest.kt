@@ -1,7 +1,12 @@
 package com.jnd.ngdroid.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import com.jnd.ngdroid.data.ButtonStyle
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.abs
 
 class AdaptiveTest {
 
@@ -42,5 +47,35 @@ class AdaptiveTest {
         val smallBody = appTypography(WidthBucket.SMALL).bodyLarge.fontSize
         val regularBody = appTypography(WidthBucket.REGULAR).bodyLarge.fontSize
         assert(smallBody < regularBody)
+    }
+
+    @Test
+    fun secondaryKeepsAccentHueFamily() {
+        val accent = Color(0xFF00E5FF) // cyan ~187°
+        val diff = abs(secondaryFor(accent).hueDeg() - accent.hueDeg())
+        assertTrue(diff < 30f)
+    }
+
+    @Test
+    fun tertiaryIsShiftedOffAccent() {
+        val diff = abs(tertiaryFor(Color(0xFF00E5FF)).hueDeg() - 187f)
+        assertTrue(diff > 20f && diff < 60f)
+    }
+
+    @Test
+    fun cyanAccentYieldsNoPurpleFallbacks() {
+        val hues = listOf(
+            secondaryFor(Color(0xFF00E5FF)).hueDeg(),
+            tertiaryFor(Color(0xFF00E5FF)).hueDeg()
+        )
+        // 270° == purple: neither derived color may sit on the old default.
+        hues.forEach { assertTrue(abs(it - 270f) > 40f) }
+    }
+
+    @Test
+    fun buttonShapeFollowsSetting() {
+        assertTrue(buttonShapeFor(ButtonStyle.PILL).toString().contains("24.0.dp"))
+        assertTrue(buttonShapeFor(ButtonStyle.SQUARE).toString().contains("4.0.dp"))
+        assertTrue(buttonShapeFor(ButtonStyle.ROUNDED) is RoundedCornerShape)
     }
 }

@@ -19,21 +19,27 @@ fun NGDroidTheme(
     accent: Color = Purple40,
     content: @Composable () -> Unit
 ) {
+    val secondary = remember(accent) { secondaryFor(accent) }
+    val tertiary = remember(accent) { tertiaryFor(accent) }
     val colorScheme = if (darkTheme) {
         darkColorScheme(
             primary = accent,
             primaryContainer = accent.copy(alpha = 0.2f),
             onPrimaryContainer = accent,
-            secondary = PurpleGrey80,
-            tertiary = Pink80
+            secondary = secondary,
+            secondaryContainer = secondary.copy(alpha = 0.2f),
+            tertiary = tertiary,
+            tertiaryContainer = tertiary.copy(alpha = 0.2f)
         )
     } else {
         lightColorScheme(
             primary = accent,
             primaryContainer = accent.copy(alpha = 0.15f),
             onPrimaryContainer = accent,
-            secondary = PurpleGrey40,
-            tertiary = Pink40
+            secondary = secondary,
+            secondaryContainer = secondary.copy(alpha = 0.18f),
+            tertiary = tertiary,
+            tertiaryContainer = tertiary.copy(alpha = 0.18f)
         )
     }
 

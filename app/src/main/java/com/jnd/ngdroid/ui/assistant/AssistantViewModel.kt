@@ -22,6 +22,7 @@ import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
 import com.jnd.ngdroid.data.ChatHistoryStore
 import com.jnd.ngdroid.data.ChatSession
+import com.jnd.ngdroid.data.NetworkMonitor
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -91,10 +92,30 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     private var persistJob: Job? = null
 
+    /**
+     * True once the persisted settings arrived. The auto-pick below must wait
+     * for it: picking a default from blank (not-yet-loaded) settings would
+     * overwrite — and permanently lose — the user's saved model.
+     */
+    private var settingsLoaded = false
+
+    /** Online state for send guards and the offline banner. */
+    private val netMonitor = NetworkMonitor(application)
+    val isOnline: StateFlow<Boolean> = netMonitor.isOnline
+
+    companion object {
+        const val OFFLINE_NOTICE =
+            "You're offline. Reconnect, then send again — nothing was sent."
+    }
+
     init {
+        netMonitor.start()
         viewModelScope.launch {
             try {
-                store.settingsFlow.collect { _settings.value = it }
+                store.settingsFlow.collect {
+                    _settings.value = it
+                    settingsLoaded = true
+                }
             } catch (_: Exception) { }
         }
         viewModelScope.launch {
@@ -108,7 +129,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try {
                 val id = chatStore.activeIdFlow.first()
-                if (id != null) openChat(id, persistCurrent = false)
+                // Cold-start resume must not touch the model: the saved global
+                // selection wins. Only an explicit drawer tap restores a chat's model.
+                if (id != null) openChat(id, persistCurrent = false, restoreModel = false)
             } catch (_: Exception) { }
         }
         // Zen's /models is public: preload the free catalog so the picker
@@ -116,6 +139,19 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         if (_settings.value.provider == AgentProvider.OPENCODE_ZEN) {
             refreshModels()
         }
+    }
+
+    override fun onCleared() {
+        netMonitor.stop()
+        super.onCleared()
+    }
+
+    /** Appends the offline notice once (no spam on repeated taps). Returns false. */
+    private fun notifyOffline(): Boolean {
+        if (_messages.value.lastOrNull()?.text != OFFLINE_NOTICE) {
+            append(ChatMsg(role = ChatRoleUi.ASSISTANT, text = OFFLINE_NOTICE))
+        }
+        return false
     }
 
     /** Persist the working set into the session list (debounced). */
@@ -214,7 +250,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Resume a saved chat: loads its transcript and rebuilds agent history. */
-    fun openChat(id: String, persistCurrent: Boolean = true) {
+    fun openChat(id: String, persistCurrent: Boolean = true, restoreModel: Boolean = true) {
         if (_isThinking.value) return
         if (persistCurrent && _messages.value.isNotEmpty() && _activeChatId.value != id) {
             viewModelScope.launch { persistNow() }
@@ -230,8 +266,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _activeChatId.value = id
         // Resume with the chat's own model: follow-ups should run on the same
         // model the conversation started with, not whatever is selected now.
+        // Skipped on cold-start resume so the saved global selection stands.
         val savedModel = session.model.trim()
-        if (savedModel.isNotEmpty()) {
+        if (restoreModel && savedModel.isNotEmpty()) {
             val matchedProvider =
                 AgentProvider.entries.firstOrNull { it.displayName == session.providerName }
             if (matchedProvider != null && matchedProvider != _settings.value.provider) {
@@ -346,6 +383,10 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
      */
     fun refreshModels() {
         if (_modelsLoading.value) return
+        if (!netMonitor.isOnline.value) {
+            _modelsError.value = "You're offline — reconnect to fetch models."
+            return
+        }
         val s = _settings.value
         val key = s.activeApiKey()
         val needsKey = s.provider != AgentProvider.OPENCODE_ZEN
@@ -368,13 +409,16 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 } else emptyList()
                 _freeModels.value = rankModels(free)
                 _models.value = rankModelsFreeFirst(fetched, free.toSet())
+                // Re-read: [s] may predate the settings restore that finished
+                // while the network call was in flight.
+                val current = _settings.value
                 if (fetched.isEmpty()) {
                     _modelsError.value = "Provider returned no models."
-                } else {
-                    // Auto-pick: first free model (Zen) when the user chose nothing yet.
-                    if (s.selectedModel.isBlank() && free.isNotEmpty()) {
-                        selectModel(rankModels(free).first())
-                    } else if (s.selectedModel.isNotBlank() && s.selectedModel !in fetched) {
+                } else if (settingsLoaded) {
+                    // Auto-pick: first working free model (Zen) when the user chose nothing yet.
+                    if (current.selectedModel.isBlank() && free.isNotEmpty()) {
+                        ZenProvider.autoDefault(free)?.let { selectModel(it) }
+                    } else if (current.selectedModel.isNotBlank() && current.selectedModel !in fetched) {
                         // Stored selection vanished from the catalog — clear it to re-pick.
                         selectModel("")
                         _modelsError.value = "Saved model is no longer offered — pick a new one."
@@ -390,9 +434,15 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun sendMessage(text: String, simBridge: SimBridge) {
+    /**
+     * Sends a chat turn. Returns true when the turn started (caller clears
+     * its input); false when nothing was sent (blank, busy, or offline —
+     * offline also posts a one-time notice, input is kept).
+     */
+    fun sendMessage(text: String, simBridge: SimBridge): Boolean {
         val clean = text.trim()
-        if (clean.isEmpty() || _isThinking.value) return
+        if (clean.isEmpty() || _isThinking.value) return false
+        if (!netMonitor.isOnline.value) return notifyOffline()
         val s = _settings.value
         val key = s.activeApiKey()
         append(ChatMsg(role = ChatRoleUi.USER, text = clean))
@@ -405,7 +455,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                         "from the live ${s.provider.displayName} catalog."
                 )
             )
-            return
+            return true
         }
         // Free Zen models work without any key (Bearer public + session header);
         // anything else needs the provider key from Settings.
@@ -417,21 +467,24 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                         "Open Settings → AI Assistant and paste your key — or pick a FREE model."
                 )
             )
-            return
+            return true
         }
         runAgentTurn(clean, s, key, model, simBridge)
+        return true
     }
 
     /**
      * Edit a user prompt end-to-end: truncate everything after it, replace its
      * text, then regenerate from that point. Drops any in-flight run.
+     * Returns false when nothing was sent (offline keeps the draft open).
      */
-    fun editAndResend(msgId: String, newText: String, simBridge: SimBridge) {
+    fun editAndResend(msgId: String, newText: String, simBridge: SimBridge): Boolean {
         val clean = newText.trim()
-        if (clean.isEmpty() || _isThinking.value) return
+        if (clean.isEmpty() || _isThinking.value) return false
+        if (!netMonitor.isOnline.value) return notifyOffline()
         val current = _messages.value
         val idx = current.indexOfFirst { it.id == msgId && it.role == ChatRoleUi.USER }
-        if (idx < 0) return
+        if (idx < 0) return false
         runJob?.cancel()
         runJob = null
         val truncated = truncateAfter(current, msgId).toMutableList()
@@ -453,7 +506,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             )
             schedulePersist()
-            return
+            return true
         }
         val key = s.activeApiKey()
         if (key.isEmpty() && zenNeedsKey(model)) {
@@ -465,9 +518,10 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             )
             schedulePersist()
-            return
+            return true
         }
         runAgentTurn(clean, s, key, model, simBridge)
+        return true
     }
 
     /**

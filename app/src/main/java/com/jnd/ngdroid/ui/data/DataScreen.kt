@@ -56,6 +56,7 @@ import com.jnd.ngdroid.domain.ExportPlotUseCase
 import com.jnd.ngdroid.engine.SimulationPlot
 import com.jnd.ngdroid.ui.SimulationViewModel
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
+import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -210,7 +211,7 @@ fun DataScreen(
                     // Share CSV Button
                     Button(
                         onClick = { exportCsvUseCase.shareCsv(context, activePlot) },
-                        shape = RoundedCornerShape(8.dp)
+                        shape = LocalButtonShape.current
                     ) {
                         Icon(
                             Icons.Default.Share,
@@ -241,7 +242,7 @@ fun DataScreen(
                                 }
                             }
                         },
-                        shape = RoundedCornerShape(8.dp)
+                        shape = LocalButtonShape.current
                     ) {
                         Icon(
                             Icons.Default.Share,
@@ -283,7 +284,7 @@ fun DataScreen(
                                 ).show()
                             }
                         },
-                        shape = RoundedCornerShape(8.dp)
+                        shape = LocalButtonShape.current
                     ) {
                         Icon(
                             Icons.Default.Download,
@@ -302,7 +303,7 @@ fun DataScreen(
             Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
                     onClick = { isHistoryExpanded = true },
-                    shape = RoundedCornerShape(8.dp),
+                    shape = LocalButtonShape.current,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(

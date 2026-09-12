@@ -4,6 +4,7 @@
 
     <!-- Oreo compat: foreground service for long sims (normal perm, auto-granted). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Declared for lint/target-33 correctness; runtime-guarded, never requested on API 26-32. -->

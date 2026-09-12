@@ -1,13 +1,16 @@
 package com.jnd.ngdroid.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.jnd.ngdroid.data.ButtonStyle
 
 /**
  * Responsive flow: one UI, metrics chosen by screen-width bucket so phones
@@ -78,3 +81,9 @@ fun appSizesFor(bucket: WidthBucket): AppSizes = when (bucket) {
 }
 
 val LocalAppSizes = staticCompositionLocalOf { appSizesFor(WidthBucket.REGULAR) }
+
+/** Action-button shape from settings. Pure — JVM-testable. */
+fun buttonShapeFor(style: ButtonStyle): Shape = RoundedCornerShape(style.cornerDp.dp)
+
+/** Action-button shape, provided at the app root from Settings. */
+val LocalButtonShape = staticCompositionLocalOf<Shape> { RoundedCornerShape(12.dp) }

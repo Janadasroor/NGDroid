@@ -99,6 +99,7 @@ import kotlinx.coroutines.launch
 import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
+import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import com.mikepenz.markdown.m3.Markdown
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -113,6 +114,7 @@ fun AssistantScreen(
 ) {
     val messages by assistantViewModel.messages.collectAsState()
     val isThinking by assistantViewModel.isThinking.collectAsState()
+    val isOnline by assistantViewModel.isOnline.collectAsState()
     val statusLine by assistantViewModel.statusLine.collectAsState()
     val settings by assistantViewModel.settings.collectAsState()
     val models by assistantViewModel.models.collectAsState()
@@ -163,8 +165,8 @@ fun AssistantScreen(
     fun send(text: String) {
         val clean = text.trim()
         if (clean.isEmpty() || isThinking) return
-        assistantViewModel.sendMessage(clean, currentBridge())
-        input = ""
+        // Offline (or otherwise unsent): keep the input so nothing is lost.
+        if (assistantViewModel.sendMessage(clean, currentBridge())) input = ""
     }
 
     ModalNavigationDrawer(
@@ -198,14 +200,8 @@ fun AssistantScreen(
                         Icon(Icons.Default.Menu, contentDescription = "Saved chats")
                     }
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            settings.provider.displayName,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        // Model dropdown: live catalog, free tier first, never hardcoded.
+                        // Model picker only: the provider lives next to each
+                        // model inside the picker, not as a separate title.
                         ModelDropdownRow(
                             settings = settings,
                             models = models,
@@ -225,6 +221,15 @@ fun AssistantScreen(
                                 showModels = true
                             }
                         )
+                        if (!isOnline) {
+                            Text(
+                                "Offline — messages won't send",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                     IconButton(
                         onClick = { assistantViewModel.newChat() },
@@ -287,6 +292,7 @@ fun AssistantScreen(
                             AssistChip(
                                 onClick = { send(prompt) },
                                 label = { Text(label) },
+                                shape = LocalButtonShape.current,
                                 colors = AssistChipDefaults.assistChipColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant
                                 )
@@ -329,14 +335,18 @@ fun AssistantScreen(
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             FilledTonalButton(
                                                 onClick = {
-                                                    editingMsgId = null
-                                                    assistantViewModel.editAndResend(
+                                                    if (assistantViewModel.editAndResend(
                                                         msg.id, draft, currentBridge()
                                                     )
+                                                    ) editingMsgId = null
                                                 },
-                                                enabled = draft.trim().isNotEmpty()
+                                                enabled = draft.trim().isNotEmpty(),
+                                                shape = LocalButtonShape.current
                                             ) { Text("Send") }
-                                            OutlinedButton(onClick = { editingMsgId = null }) {
+                                            OutlinedButton(
+                                                onClick = { editingMsgId = null },
+                                                shape = LocalButtonShape.current
+                                            ) {
                                                 Text("Cancel")
                                             }
                                         }
@@ -573,8 +583,9 @@ private fun ModelDropdownRow(
         ) {
             Text(
                 text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = if (hasSelection) MaterialTheme.colorScheme.primary
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = if (hasSelection) MaterialTheme.colorScheme.onSurface
                 else MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -590,8 +601,8 @@ private fun ModelDropdownRow(
                 Icon(
                     Icons.Default.ExpandMore,
                     contentDescription = "Select model",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -622,16 +633,30 @@ private fun ModelDropdownRow(
                 }
                 models.take(14).forEach { id ->
                     val isSelected = selected == id
+                    val isFree = freeModels.any { it == id }
                     DropdownMenuItem(
                         text = {
-                            Text(
-                                id,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface
-                            )
+                            Column {
+                                Text(
+                                    id,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    buildString {
+                                        append(settings.provider.displayName)
+                                        if (isFree) append(" • FREE")
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isFree) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         },
                         trailingIcon = if (isSelected) {
                             {
@@ -789,8 +814,14 @@ private fun CodeBlockCard(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onApply) { Text("Apply") }
-                FilledTonalButton(onClick = onApplyAndRun) {
+                OutlinedButton(
+                    onClick = onApply,
+                    shape = LocalButtonShape.current
+                ) { Text("Apply") }
+                FilledTonalButton(
+                    onClick = onApplyAndRun,
+                    shape = LocalButtonShape.current
+                ) {
                     Icon(
                         Icons.Default.PlayArrow,
                         contentDescription = null,
@@ -904,6 +935,7 @@ private fun ModelsDialog(
                 ) {
                     items(visible, key = { it }) { id ->
                         val selected = settings.selectedModel.trim() == id
+                        val isFree = freeModels.any { it == id }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -922,6 +954,17 @@ private fun ModelsDialog(
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                                     color = if (selected) MaterialTheme.colorScheme.primary
                                     else MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    buildString {
+                                        append(settings.provider.displayName)
+                                        if (isFree) append(" • FREE")
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (isFree) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                             if (selected) {
