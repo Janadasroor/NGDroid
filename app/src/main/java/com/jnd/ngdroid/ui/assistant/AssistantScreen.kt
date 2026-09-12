@@ -98,6 +98,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.mikepenz.markdown.m3.Markdown
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -129,8 +130,9 @@ fun AssistantScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val sizes = LocalAppSizes.current
 
-    // ChatGPT-style: tool progress (SYSTEM) lives only inside the thinking
+    // Tool progress (SYSTEM) lives only inside the thinking
     // expander, never as separate rows in the message list.
     val visibleMessages = remember(messages) {
         messages.filter { it.role != ChatRoleUi.SYSTEM }
@@ -240,13 +242,13 @@ fun AssistantScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(24.dp),
+                    .padding(sizes.contentPadding),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
-                            .size(84.dp)
+                            .size(sizes.emptyIcon)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
@@ -254,7 +256,7 @@ fun AssistantScreen(
                         Icon(
                             Icons.AutoMirrored.Filled.Chat,
                             contentDescription = null,
-                            modifier = Modifier.size(40.dp),
+                            modifier = Modifier.size(sizes.emptyIconInner),
                             tint = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
@@ -299,8 +301,8 @@ fun AssistantScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp)
+                contentPadding = PaddingValues(horizontal = sizes.contentPadding, vertical = sizes.contentPadding),
+                verticalArrangement = Arrangement.spacedBy(sizes.messageSpacing)
             ) {
                 items(visibleMessages, key = { it.id }) { msg ->
                     when (msg.role) {
@@ -362,7 +364,7 @@ fun AssistantScreen(
                                     Surface(
                                         color = MaterialTheme.colorScheme.primary,
                                         shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
-                                        modifier = Modifier.fillMaxWidth(0.85f)
+                                        modifier = Modifier.fillMaxWidth(sizes.bubbleMaxFraction)
                                     ) {
                                         Text(
                                             msg.text,
@@ -494,7 +496,7 @@ fun AssistantScreen(
                 ) {
                     FilledIconButton(
                         onClick = { assistantViewModel.stopGenerating() },
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(sizes.inputButton)
                     ) {
                         Icon(Icons.Default.Stop, contentDescription = "Stop")
                     }
@@ -503,7 +505,7 @@ fun AssistantScreen(
                     FilledIconButton(
                         onClick = { send(input) },
                         enabled = input.isNotBlank(),
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(sizes.inputButton)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                     }
@@ -656,7 +658,7 @@ private fun ModelDropdownRow(
 }
 
 /**
- * ChatGPT-style thinking row: no spinner — an expand button toggles the
+ * Thinking row: no spinner — an expand button toggles the
  * working details (tool steps). Collapsed shows the dynamic title
  * ("Validating…", "Applying…") or the finished summary ("Validated • 4 steps").
  */

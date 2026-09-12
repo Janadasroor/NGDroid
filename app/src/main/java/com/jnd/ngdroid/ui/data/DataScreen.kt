@@ -55,6 +55,7 @@ import com.jnd.ngdroid.domain.ExportCsvUseCase
 import com.jnd.ngdroid.domain.ExportPlotUseCase
 import com.jnd.ngdroid.engine.SimulationPlot
 import com.jnd.ngdroid.ui.SimulationViewModel
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -75,6 +76,10 @@ fun DataScreen(
 
     var selectedPlotOverride by remember { mutableStateOf<SimulationPlot?>(null) }
     var isHistoryExpanded by remember { mutableStateOf(false) }
+    // Scroll state for the header action row: buttons keep natural width and
+    // scroll instead of squeezing (which wrapped labels mid-word / overlapped).
+    val headerActionsScroll = rememberScrollState()
+    val sizes = LocalAppSizes.current
 
     // Legacy storage permission launcher (API 26-28 only, for Downloads save).
     var pendingDownloadPlot by remember { mutableStateOf<SimulationPlot?>(null) }
@@ -141,34 +146,34 @@ fun DataScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp),
+            .padding(sizes.contentPadding),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Header Row with Title, Copy CSV, and Share CSV Button
+        // Header: title row, then one scrollable action row (never overlaps).
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    Icons.Default.TableChart,
-                    contentDescription = "Data Table",
-                    tint = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "CSV Results Table",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
+            Icon(
+                Icons.Default.TableChart,
+                contentDescription = "Data Table",
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = "CSV Results Table",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
 
             if (activePlot != null && activePlot.scaleVector != null && activePlot.scaleVector.values.isNotEmpty()) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), horizontalAlignment = Alignment.End) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     // Copy CSV
                     IconButton(onClick = {
                         val csv = exportCsvUseCase.generateCsv(activePlot)
@@ -190,7 +195,18 @@ fun DataScreen(
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+        }
+        }
 
+            // Action row: scrolls horizontally so buttons keep natural width.
+            if (activePlot != null && activePlot.scaleVector != null && activePlot.scaleVector.values.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(headerActionsScroll),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     // Share CSV Button
                     Button(
                         onClick = { exportCsvUseCase.shareCsv(context, activePlot) },
@@ -202,12 +218,9 @@ fun DataScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("Share CSV")
+                        Text("Share CSV", maxLines = 1)
                     }
-                }
-
-                // Lab report row: share PDF or save to Downloads (same Oreo permission path).
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Lab report: share PDF or save to Downloads (same permission path).
                     OutlinedButton(
                         onClick = {
                             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -236,7 +249,7 @@ fun DataScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("Report PDF")
+                        Text("Report PDF", maxLines = 1)
                     }
                     OutlinedButton(
                         onClick = {
@@ -278,9 +291,8 @@ fun DataScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(6.dp))
-                        Text("Save PDF")
+                        Text("Save PDF", maxLines = 1)
                     }
-                }
                 }
             }
         }
@@ -441,9 +453,10 @@ fun DataScreen(
 
 @Composable
 private fun TableCell(text: String, isHeader: Boolean = false) {
+    val cellWidth = LocalAppSizes.current.tableCellWidth
     Box(
         modifier = Modifier
-            .width(130.dp)
+            .width(cellWidth)
             .padding(horizontal = 4.dp)
     ) {
         Text(

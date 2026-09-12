@@ -5,6 +5,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 
 /**
@@ -35,9 +37,17 @@ fun NGDroidTheme(
         )
     }
 
+    val bucket = rememberWidthBucket()
+
     MaterialTheme(
         colorScheme = colorScheme,
-        typography = Typography,
-        content = content
+        typography = remember(bucket) { appTypography(bucket) },
+        content = {
+            CompositionLocalProvider(
+                LocalAppSizes provides remember(bucket) { appSizesFor(bucket) }
+            ) {
+                content()
+            }
+        }
     )
 }

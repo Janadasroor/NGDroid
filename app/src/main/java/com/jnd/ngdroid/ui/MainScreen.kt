@@ -29,9 +29,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jnd.ngdroid.data.ThemeMode
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.console.ConsoleScreen
 import com.jnd.ngdroid.ui.data.DataScreen
 import com.jnd.ngdroid.ui.editor.NetlistEditorScreen
@@ -89,43 +92,35 @@ fun MainScreen(
             },
             bottomBar = {
                 if (!isFullscreenPlot) {
+                    // Six destinations must fit 320dp+ screens: single-line
+                    // labels at the bucket size, truncated instead of wrapping.
+                    val navLabel = MaterialTheme.typography.labelMedium.copy(
+                        fontSize = LocalAppSizes.current.navLabelSize
+                    )
+                    val tabs = listOf(
+                        AppTab.EDITOR to Icons.Default.Code,
+                        AppTab.CONSOLE to Icons.Default.Terminal,
+                        AppTab.PLOT to Icons.AutoMirrored.Filled.ShowChart,
+                        AppTab.DATA to Icons.Default.TableChart,
+                        AppTab.ASSISTANT to Icons.Default.SmartToy,
+                        AppTab.SETTINGS to Icons.Default.Settings
+                    )
                     NavigationBar {
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.EDITOR,
-                            onClick = { selectedTab = AppTab.EDITOR },
-                            icon = { Icon(Icons.Default.Code, contentDescription = "Editor") },
-                            label = { Text(AppTab.EDITOR.title) }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.CONSOLE,
-                            onClick = { selectedTab = AppTab.CONSOLE },
-                            icon = { Icon(Icons.Default.Terminal, contentDescription = "Console") },
-                            label = { Text(AppTab.CONSOLE.title) }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.PLOT,
-                            onClick = { selectedTab = AppTab.PLOT },
-                            icon = { Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "Plot") },
-                            label = { Text(AppTab.PLOT.title) }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.DATA,
-                            onClick = { selectedTab = AppTab.DATA },
-                            icon = { Icon(Icons.Default.TableChart, contentDescription = "Data") },
-                            label = { Text(AppTab.DATA.title) }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.ASSISTANT,
-                            onClick = { selectedTab = AppTab.ASSISTANT },
-                            icon = { Icon(Icons.Default.SmartToy, contentDescription = "Assistant") },
-                            label = { Text(AppTab.ASSISTANT.title) }
-                        )
-                        NavigationBarItem(
-                            selected = selectedTab == AppTab.SETTINGS,
-                            onClick = { selectedTab = AppTab.SETTINGS },
-                            icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                            label = { Text(AppTab.SETTINGS.title) }
-                        )
+                        tabs.forEach { (tab, icon) ->
+                            NavigationBarItem(
+                                selected = selectedTab == tab,
+                                onClick = { selectedTab = tab },
+                                icon = { Icon(icon, contentDescription = tab.title) },
+                                label = {
+                                    Text(
+                                        tab.title,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = navLabel
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
