@@ -100,7 +100,6 @@ import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
-import com.mikepenz.markdown.m3.Markdown
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -427,10 +426,7 @@ fun AssistantScreen(
                                 )
                                 Spacer(Modifier.height(2.dp))
                             }
-                            Markdown(
-                                msg.text,
-                                imageTransformer = AssistantImageTransformer
-                            )
+                            AssistantMarkdownWithMath(msg.text)
                             val blocks = remember(msg.text) { extractCodeBlocks(msg.text) }
                             blocks.forEach { block ->
                                 Spacer(Modifier.height(10.dp))
@@ -997,7 +993,7 @@ private fun ModelsDialog(
     )
 }
 
-private fun copyToClipboard(context: Context, text: String) {
+internal fun copyToClipboard(context: Context, text: String) {
     try {
         val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         cm.setPrimaryClip(ClipData.newPlainText("netlist", text))
