@@ -36,6 +36,21 @@ object SpiceValidator {
         if (!hasEnd) {
             errors.add("Missing '.end' terminator")
         }
+        // Structural state for complex netlists: subcircuits, models, instance names.
+        val subcktNames = mutableSetOf<String>()
+        val modelNames = mutableSetOf<String>()
+        val seenNames = mutableSetOf<String>()
+        var openSubckts = 0
+        // Pre-scan: definitions may come after use (SPICE allows forward
+        // references), so collect every .subckt/.model name first.
+        for (raw in lines) {
+            val parts = raw.trim().split(Regex("\\s+"))
+            if (parts.isEmpty() || !parts.first().startsWith(".")) continue
+            when (parts.first().lowercase()) {
+                ".subckt" -> if (parts.size >= 3) subcktNames.add(parts[1].lowercase())
+                ".model" -> if (parts.size >= 2) modelNames.add(parts[1].lowercase())
+            }
+        }
         for ((idx, raw) in lines.withIndex()) {
             val line = raw.trim()
             if (line.isEmpty()) continue
@@ -45,13 +60,70 @@ object SpiceValidator {
                 if (directive !in knownDirectives) {
                     errors.add("Line ${idx + 1}: unknown directive '$directive' (did you mean .tran/.ac/.dc/.op/.model/.subckt/.ends/.end?)")
                 }
+                if (directive == ".control") {
+                    errors.add("Line ${idx + 1}: '.control/.endc' blocks are not supported on Android (sharedspice mode strips them) — remove the block and keep plain analyses (.tran/.ac/.dc/.op)")
+                }
+                if (directive == ".subckt") {
+                    val parts = line.split(Regex("\\s+"))
+                    if (parts.size < 3) {
+                        errors.add("Line ${idx + 1}: '.subckt' needs a name and at least one node (e.g. '.subckt INV vdd vss in out')")
+                    } else {
+                        subcktNames.add(parts[1].lowercase())
+                        openSubckts++
+                    }
+                }
+                if (directive == ".ends") {
+                    if (openSubckts <= 0) {
+                        errors.add("Line ${idx + 1}: '.ends' without a matching '.subckt'")
+                    } else {
+                        openSubckts--
+                    }
+                }
+                if (directive == ".model") {
+                    val parts = line.split(Regex("\\s+"))
+                    if (parts.size >= 2) modelNames.add(parts[1].lowercase())
+                }
                 continue
             }
             if (line.startsWith("+")) continue
             val lead = line.first().uppercaseChar()
             if (lead !in validLeadChars) {
                 errors.add("Line ${idx + 1}: unknown component lead character '$lead'")
+                continue
             }
+            val name = line.split(Regex("\\s+")).first()
+            val key = name.lowercase()
+            if (!seenNames.add(key)) {
+                errors.add("Line ${idx + 1}: duplicate instance name '$name' (rename one of them)")
+                continue
+            }
+            val tokens = line.split(Regex("\\s+"))
+            when (lead) {
+                // X<name> nodes... <subckt>: subcircuit must be defined in this file.
+                'X' -> {
+                    val ref = tokens.lastOrNull().orEmpty()
+                    if (ref.isNotEmpty() && ref.lowercase() !in subcktNames) {
+                        errors.add("Line ${idx + 1}: X-device '$name' references undefined subcircuit '$ref' (add a matching '.subckt $ref ...' block)")
+                    }
+                }
+                // Q/M/J need an explicit .model; D falls back to the built-in default.
+                'Q', 'M', 'J' -> {
+                    val ref = tokens.lastOrNull().orEmpty()
+                    if (ref.isNotEmpty() && ref.lowercase() !in modelNames) {
+                        errors.add("Line ${idx + 1}: '$name' references undefined model '$ref' (add a matching '.model $ref ...' line)")
+                    }
+                }
+                // A (XSPICE code model) needs its .model definition too.
+                'A' -> {
+                    val ref = tokens.lastOrNull().orEmpty()
+                    if (ref.isNotEmpty() && ref.lowercase() !in modelNames) {
+                        errors.add("Line ${idx + 1}: A-device '$name' references undefined code model '$ref' (add '.model $ref <codemodel>(...)')")
+                    }
+                }
+            }
+        }
+        if (openSubckts > 0) {
+            errors.add("Unbalanced '.subckt': $openSubckts block(s) never closed with '.ends'")
         }
         return ValidationResult(errors.isEmpty(), errors)
     }

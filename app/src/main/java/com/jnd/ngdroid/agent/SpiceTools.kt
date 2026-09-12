@@ -38,9 +38,9 @@ class ValidateNetlistTool : AgentTool {
 class GenerateNetlistTemplateTool : AgentTool {
     override val name: String = "netlist_template"
     override val description: String =
-        "Return a preset SPICE netlist template. Input JSON: {\"kind\": \"rc|rlc|diode\"}."
+        "Return a preset SPICE netlist template. Input JSON: {\"kind\": \"rc|rlc|diode|bjt|opamp\"}."
     override val parametersJsonSchema: String =
-        """{"type":"object","properties":{"kind":{"type":"string","enum":["rc","rlc","diode"]}},"required":["kind"]}"""
+        """{"type":"object","properties":{"kind":{"type":"string","enum":["rc","rlc","diode","bjt","opamp"]}},"required":["kind"]}"""
 
     override suspend fun execute(argsJson: String): String {
         val kind = runCatching {
@@ -68,6 +68,32 @@ class GenerateNetlistTemplateTool : AgentTool {
                 D1 out 0 1N4148
                 .model 1N4148 D(IS=2.52n RS=0.568 N=1.752 BV=100 IBV=100u)
                 .tran 0.05m 5m
+                .end
+            """.trimIndent()
+            "bjt" -> """
+                * BJT common-emitter amplifier
+                Vcc vcc 0 12
+                Vin in 0 SIN(0 10m 1k)
+                Cin in b 10u
+                Rb1 vcc b 47k
+                Rb2 b 0 10k
+                Rc vcc c 2.2k
+                Re e 0 1k
+                Ce e 0 100u
+                Q1 c b e 0 q2n2222
+                .model q2n2222 NPN(IS=1e-14 BF=200)
+                Cout c out 10u
+                Rl out 0 10k
+                .tran 1u 5m
+                .end
+            """.trimIndent()
+            "opamp" -> """
+                * Opamp non-inverting amplifier (behavioral ideal opamp, gain = 1+R2/R1 = 11)
+                Vin in 0 SIN(0 100m 1k)
+                R1 0 inv 1k
+                R2 inv out 10k
+                Bop out 0 V=100k*(V(in)-V(inv))
+                .tran 1u 5m
                 .end
             """.trimIndent()
             else -> """
