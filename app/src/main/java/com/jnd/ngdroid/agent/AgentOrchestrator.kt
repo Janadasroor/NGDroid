@@ -24,7 +24,9 @@ class AgentOrchestrator(
     suspend fun run(
         userMessage: String,
         history: List<ChatMessage> = emptyList(),
-        onEvent: (AgentEvent) -> Unit = {}
+        onEvent: (AgentEvent) -> Unit = {},
+        /** Maps raw provider failure text to user-visible text (default: passthrough). */
+        errorFormatter: (String) -> String = { it }
     ): String {
         val conversation = history.toMutableList()
         conversation.add(ChatMessage(ChatRole.USER, userMessage))
@@ -45,7 +47,8 @@ class AgentOrchestrator(
                 provider.chat(req)
             } catch (e: Exception) {
                 onEvent(AgentEvent.Error("Provider error: ${e.message}"))
-                return lastText.ifBlank { "Provider error: ${e.message}" }
+                val friendly = errorFormatter(e.message ?: e.javaClass.simpleName)
+                return lastText.ifBlank { friendly }
             }
             if (resp.text.isNotBlank()) lastText = resp.text
 
@@ -98,7 +101,7 @@ class AgentOrchestrator(
             text.ifBlank { "Stopped after ${config.maxIterations} iterations without a final answer." }
         } catch (e: Exception) {
             onEvent(AgentEvent.Error("Final-answer error: ${e.message}"))
-            lastText.ifBlank { "Stopped after ${config.maxIterations} iterations: ${e.message}" }
+            lastText.ifBlank { errorFormatter(e.message ?: e.javaClass.simpleName) }
         }
     }
 }

@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.jnd.ngdroid.agent.AgentConfig
+import com.jnd.ngdroid.agent.AgentErrors
 import com.jnd.ngdroid.agent.AgentEvent
 import com.jnd.ngdroid.agent.AgentOrchestrator
 import com.jnd.ngdroid.agent.ApplyNetlistTool
@@ -227,6 +228,19 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _statusLine.value = null
         _isThinking.value = false
         _activeChatId.value = id
+        // Resume with the chat's own model: follow-ups should run on the same
+        // model the conversation started with, not whatever is selected now.
+        val savedModel = session.model.trim()
+        if (savedModel.isNotEmpty()) {
+            val matchedProvider =
+                AgentProvider.entries.firstOrNull { it.displayName == session.providerName }
+            if (matchedProvider != null && matchedProvider != _settings.value.provider) {
+                updateProvider(matchedProvider)
+            }
+            if (savedModel != _settings.value.selectedModel) {
+                selectModel(savedModel)
+            }
+        }
         viewModelScope.launch {
             try { chatStore.setActiveId(id) } catch (_: Exception) { }
         }
@@ -503,31 +517,42 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     register(GenerateNetlistTemplateTool())
                     register(ApplyNetlistTool(bridge))
                 }
-                val agent = AgentOrchestrator(AgentConfig(maxIterations = 8), provider, registry)
-                val answer = agent.run(clean, history.toList()) { event ->
+                val agent = AgentOrchestrator(AgentConfig(maxIterations = 12), provider, registry)
+                // Raw provider failures become short friendly sentences (no JSON/URLs).
+                val answer = agent.run(
+                    clean,
+                    history.toList(),
+                    { event ->
                     when (event) {
                         is AgentEvent.ToolCallEvent -> {
                             append(ChatMsg(role = ChatRoleUi.SYSTEM, text = "Calling ${event.name}…"))
                             _statusLine.value = "Calling ${event.name}…"
                         }
                         is AgentEvent.Observation -> {
-                            val snippet = if (event.output == "VALID") "VALID"
-                            else "Error: ${event.output.take(220)}"
+                            val out = event.output
+                            val snippet = when {
+                                out == "VALID" -> "VALID"
+                                out.startsWith("ERROR") || out.startsWith("INVALID") ->
+                                    "Error: ${out.take(220)}"
+                                else -> out.take(220)
+                            }
                             append(ChatMsg(role = ChatRoleUi.SYSTEM, text = "${event.toolName}: $snippet"))
                             _statusLine.value = null
                         }
                         is AgentEvent.Error -> {
-                            _statusLine.value = event.message.take(160)
+                            _statusLine.value = AgentErrors.format(event.message, model).take(140)
                         }
                         is AgentEvent.Message -> { /* final text handled via return value */ }
                     }
-                }
+                    },
+                    errorFormatter = { AgentErrors.format(it, model) }
+                )
                 history.add(ChatMessage(ChatRole.USER, clean))
                 history.add(ChatMessage(ChatRole.ASSISTANT, answer))
                 append(ChatMsg(role = ChatRoleUi.ASSISTANT, text = answer.ifBlank { "(empty response)" }))
                 schedulePersist()
             } catch (e: Exception) {
-                append(ChatMsg(role = ChatRoleUi.ASSISTANT, text = "Error: ${e.message ?: e.javaClass.simpleName}"))
+                append(ChatMsg(role = ChatRoleUi.ASSISTANT, text = AgentErrors.format(e.message, model)))
                 schedulePersist()
             } finally {
                 _isThinking.value = false
