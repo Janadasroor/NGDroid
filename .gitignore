@@ -1,0 +1,47 @@
+# Gradle / Android build outputs
+.gradle/
+build/
+app/build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+output-metadata.json
+baselineProfiles/
+# Built release artifacts (local APKs, DMs)
+app/release/
+
+# Local SDK configuration (contains machine-specific absolute paths)
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.DS_Store
+
+# Kotlin incremental state
+.kotlin/
+
+# Gradle daemon toolchain (machine-generated)
+gradle/gradle-daemon-jvm.properties
+
+# NDK / CMake generated
+app/.cxx/
+
+# ngspice / simulation run artifacts accidentally generated in project root
+/*.data
+/*.plt
+/*.out
+/*.log
+/*.d1
+/text.txt
+/cider.log
+/dc-sweep.out
+/Pre-Pin-Diode-OP.0.d1
+/new*.data
+/new*.plt
+/tnew*.data
+/tnew*.plt

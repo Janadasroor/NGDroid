@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">NGDroid</string>
+    <string name="shortcut_short">New Circuit</string>
+    <string name="shortcut_long">Open SPICE Netlist Editor</string>
+</resources>

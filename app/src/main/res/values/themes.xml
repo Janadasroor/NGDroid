@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Platform shell theme (splash + status/nav on API 26, which lacks dynamic contrast). -->
+    <style name="Theme.NGDroid" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#1B1B1F</item>
+        <item name="android:navigationBarColor">#1B1B1F</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

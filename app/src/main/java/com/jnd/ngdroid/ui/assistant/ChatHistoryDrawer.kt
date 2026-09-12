@@ -1,0 +1,194 @@
+package com.jnd.ngdroid.ui.assistant
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.jnd.ngdroid.data.ChatSession
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * Saved-chats drawer: search + list + new chat. Tap resumes, long-press deletes.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ChatHistoryDrawer(
+    sessions: List<ChatSession>,
+    activeChatId: String?,
+    providerName: String,
+    onNewChat: () -> Unit,
+    onOpenChat: (String) -> Unit,
+    onDeleteChat: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var query by remember { mutableStateOf("") }
+    val visible = remember(sessions, query) { filterSessions(sessions, query) }
+    val timeFmt = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
+
+    ModalDrawerSheet(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .fillMaxWidth(0.85f)
+                .padding(12.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "Chats",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    providerName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onNewChat,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text("New chat")
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                label = { Text("Search chats") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (query.isNotEmpty()) {
+                        IconButton(onClick = { query = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(Modifier.height(8.dp))
+            HorizontalDivider()
+            Spacer(Modifier.height(4.dp))
+            if (visible.isEmpty()) {
+                Text(
+                    if (sessions.isEmpty()) "No saved chats yet."
+                    else "No chats match \"$query\"",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(8.dp)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(visible, key = { it.id }) { session ->
+                        val selected = session.id == activeChatId
+                        NavigationDrawerItem(
+                            label = {
+                                Column {
+                                    Text(
+                                        session.title.ifBlank { "New chat" },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        buildString {
+                                            if (session.providerName.isNotBlank()) {
+                                                append(session.providerName)
+                                            }
+                                            if (session.model.isNotBlank()) {
+                                                if (isNotEmpty()) append(" • ")
+                                                append(session.model)
+                                            }
+                                            append(" • ${timeFmt.format(Date(session.updatedAtMillis))}")
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            },
+                            icon = {
+                                Icon(
+                                    Icons.Default.ChatBubbleOutline,
+                                    contentDescription = null
+                                )
+                            },
+                            badge = {
+                                IconButton(
+                                    onClick = { onDeleteChat(session.id) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Delete chat",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            },
+                            selected = selected,
+                            onClick = { onOpenChat(session.id) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .combinedClickable(
+                                    onClick = { onOpenChat(session.id) },
+                                    onLongClick = { onDeleteChat(session.id) }
+                                )
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
