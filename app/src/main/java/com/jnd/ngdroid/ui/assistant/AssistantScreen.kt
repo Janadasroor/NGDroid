@@ -38,14 +38,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -98,7 +102,18 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.jnd.ngdroid.agent.extractImageUrls
+import com.jnd.ngdroid.agent.formatFileSize
 import com.jnd.ngdroid.data.AgentProvider
+import com.jnd.ngdroid.data.AndroidUploadStore
+import com.jnd.ngdroid.data.AttachmentKind
+import com.jnd.ngdroid.data.StoredAttachment
+import com.jnd.ngdroid.ui.assistant.ChatFileCards
+import com.jnd.ngdroid.ui.assistant.extractFileLinks
+import com.jnd.ngdroid.ui.assistant.extractLocalFileNames
 import com.jnd.ngdroid.data.AgentSettings
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
@@ -132,11 +147,51 @@ fun AssistantScreen(
     var editingMsgId by remember { mutableStateOf<String?>(null) }
     var deleteTargetId by remember { mutableStateOf<String?>(null) }
     var pendingBridge by remember { mutableStateOf<SimBridge?>(null) }
+    var pendingAttachments by remember { mutableStateOf<List<StoredAttachment>>(emptyList()) }
     val listState = rememberLazyListState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val sizes = LocalAppSizes.current
+    val appContext = context.applicationContext
+    val uploadStore = remember(appContext) { AndroidUploadStore(appContext) }
+
+    // Storage picker -> app-private uploads copy so the agent can read the
+    // files without holding SAF permissions. Capped at 4 per message, 15 MB each.
+    val pickFiles = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+        val remaining = MAX_ATTACHMENTS_PER_MESSAGE - pendingAttachments.size
+        if (remaining <= 0) {
+            Toast.makeText(context, "Max $MAX_ATTACHMENTS_PER_MESSAGE files per message", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
+        }
+        if (uris.size > remaining) {
+            Toast.makeText(context, "Only $remaining more file(s) allowed (max $MAX_ATTACHMENTS_PER_MESSAGE)", Toast.LENGTH_SHORT).show()
+        }
+        val added = mutableListOf<StoredAttachment>()
+        var error: String? = null
+        for (uri in uris.take(remaining)) {
+            try {
+                try {
+                    appContext.contentResolver.takePersistableUriPermission(
+                        uri, FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (_: Exception) { }
+                added.add(uploadStore.saveFromUri(uri))
+            } catch (e: Exception) {
+                error = e.message?.take(140) ?: "Couldn't read that file"
+                break
+            }
+        }
+        if (added.isNotEmpty()) {
+            pendingAttachments = (pendingAttachments + added).take(MAX_ATTACHMENTS_PER_MESSAGE)
+        }
+        if (error != null) {
+            Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+        }
+    }
 
     // Tool progress (SYSTEM) lives only inside the thinking
     // expander, never as separate rows in the message list.
@@ -168,9 +223,12 @@ fun AssistantScreen(
 
     fun send(text: String) {
         val clean = text.trim()
-        if (clean.isEmpty() || isThinking) return
+        if ((clean.isEmpty() && pendingAttachments.isEmpty()) || isThinking) return
         // Offline (or otherwise unsent): keep the input so nothing is lost.
-        if (assistantViewModel.sendMessage(clean, currentBridge())) input = ""
+        if (assistantViewModel.sendMessage(clean, currentBridge(), pendingAttachments)) {
+            input = ""
+            pendingAttachments = emptyList()
+        }
     }
 
     ModalNavigationDrawer(
@@ -183,10 +241,12 @@ fun AssistantScreen(
                 workingIds = workingIds,
                 onNewChat = {
                     assistantViewModel.newChat()
+                    pendingAttachments = emptyList()
                     scope.launch { drawerState.close() }
                 },
                 onOpenChat = {
                     assistantViewModel.openChat(it)
+                    pendingAttachments = emptyList()
                     scope.launch { drawerState.close() }
                 },
                 onDeleteChat = { deleteTargetId = it }
@@ -237,7 +297,10 @@ fun AssistantScreen(
                         }
                     }
                     IconButton(
-                        onClick = { assistantViewModel.newChat() },
+                        onClick = {
+                            assistantViewModel.newChat()
+                            pendingAttachments = emptyList()
+                        },
                         enabled = messages.isNotEmpty() || sessions.isNotEmpty()
                     ) {
                         Icon(Icons.Default.Add, contentDescription = "New chat")
@@ -325,10 +388,14 @@ fun AssistantScreen(
                                 }
                                 Surface(
                                     tonalElevation = 2.dp,
-                                    shape = RoundedCornerShape(16.dp),
+                                    shape = LocalButtonShape.current,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {
+                                        if (msg.attachments.isNotEmpty()) {
+                                            AttachmentRefRow(msg.attachments)
+                                            Spacer(Modifier.height(8.dp))
+                                        }
                                         OutlinedTextField(
                                             value = draft,
                                             onValueChange = { draft = it },
@@ -345,7 +412,7 @@ fun AssistantScreen(
                                                     )
                                                     ) editingMsgId = null
                                                 },
-                                                enabled = draft.trim().isNotEmpty(),
+                                                enabled = draft.trim().isNotEmpty() || msg.attachments.isNotEmpty(),
                                                 shape = LocalButtonShape.current
                                             ) { Text("Send") }
                                             OutlinedButton(
@@ -381,12 +448,30 @@ fun AssistantScreen(
                                         shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
                                         modifier = Modifier.fillMaxWidth(sizes.bubbleMaxFraction)
                                     ) {
-                                        Text(
-                                            msg.text,
+                                        Column(
                                             modifier = Modifier.padding(horizontal = 15.dp, vertical = 11.dp),
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            if (msg.attachments.isNotEmpty()) {
+                                                UserAttachmentList(
+                                                    attachments = msg.attachments,
+                                                    onOpen = { openUpload(context, it) }
+                                                )
+                                            }
+                                            if (msg.text.isNotBlank()) {
+                                                Text(
+                                                    msg.text,
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+                                            } else if (msg.attachments.isEmpty()) {
+                                                Text(
+                                                    "(empty)",
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    style = MaterialTheme.typography.bodyLarge
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -428,11 +513,29 @@ fun AssistantScreen(
                             if (doneSteps.isNotEmpty()) {
                                 ThinkingRow(
                                     title = pastThinkingTitle(doneSteps),
-                                    steps = doneSteps.map { it.text }
+                                    steps = doneSteps
                                 )
                                 Spacer(Modifier.height(2.dp))
                             }
                             AssistantMarkdownWithMath(msg.text)
+                            // Chat images: thumbnails of every image in the
+                            // response; tap opens the zoom/save viewer.
+                            val imageUrls = remember(msg.text) { extractImageUrls(msg.text) }
+                            var viewerUrl by remember(msg.text) { mutableStateOf<String?>(null) }
+                            if (imageUrls.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                ChatImageStrip(urls = imageUrls) { viewerUrl = it }
+                            }
+                            viewerUrl?.let { fullUrl ->
+                                ImageViewerDialog(url = fullUrl) { viewerUrl = null }
+                            }
+                            // Downloadable docs/archives + agent-saved local files.
+                            val fileLinks = remember(msg.text) { extractFileLinks(msg.text) }
+                            val localFiles = remember(msg.text) { extractLocalFileNames(msg.text) }
+                            if (fileLinks.isNotEmpty() || localFiles.isNotEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                ChatFileCards(remote = fileLinks, local = localFiles)
+                            }
                             val blocks = remember(msg.text) { extractCodeBlocks(msg.text) }
                             blocks.forEach { block ->
                                 Spacer(Modifier.height(10.dp))
@@ -504,67 +607,112 @@ fun AssistantScreen(
                 if (isThinking) {
                     item {
                         ThinkingRow(
-                            title = thinkingTitle(statusLine, toolSteps.lastOrNull()?.text),
-                            steps = toolSteps.map { it.text }
+                            title = liveThinkingTitle(statusLine, toolSteps),
+                            steps = toolSteps,
+                            isLive = true
                         )
                     }
                 }
             }
         }
 
-        // ---- Input bar ----
+        // ---- Input bar: shaped prompt widget with image/doc uploads ----
         Surface(
             tonalElevation = 2.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .imePadding(),
-                verticalAlignment = Alignment.Bottom
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    TextField(
-                        value = input,
-                        onValueChange = { input = normalizeChatInput(it) },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("Ask about circuits…") },
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                        keyboardActions = KeyboardActions(onSend = { send(input) }),
-                        maxLines = 5,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent
-                        )
+                if (pendingAttachments.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        pendingAttachments.forEach { a ->
+                            PendingAttachmentChip(
+                                attachment = a,
+                                onRemove = {
+                                    pendingAttachments = pendingAttachments.filterNot { it.id == a.id }
+                                }
+                            )
+                        }
+                    }
+                    Text(
+                        "${pendingAttachments.size}/$MAX_ATTACHMENTS_PER_MESSAGE attached • 15 MB max each • sent as text to the agent",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(Modifier.width(8.dp))
-                AnimatedVisibility(
-                    visible = isThinking,
-                    enter = fadeIn(),
-                    exit = fadeOut()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom
                 ) {
-                    FilledIconButton(
-                        onClick = { assistantViewModel.stopGenerating() },
+                    IconButton(
+                        onClick = { pickFiles.launch(arrayOf("*/*")) },
+                        enabled = !isThinking && pendingAttachments.size < MAX_ATTACHMENTS_PER_MESSAGE,
                         modifier = Modifier.size(sizes.inputButton)
                     ) {
-                        Icon(Icons.Default.Stop, contentDescription = "Stop")
+                        Icon(
+                            Icons.Default.AttachFile,
+                            contentDescription = "Attach image or document",
+                            tint = if (!isThinking && pendingAttachments.size < MAX_ATTACHMENTS_PER_MESSAGE) {
+                                MaterialTheme.colorScheme.primary
+                            } else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                }
-                if (!isThinking) {
-                    FilledIconButton(
-                        onClick = { send(input) },
-                        enabled = input.isNotBlank(),
-                        modifier = Modifier.size(sizes.inputButton)
+                    Surface(
+                        shape = LocalButtonShape.current,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                        TextField(
+                            value = input,
+                            onValueChange = { input = normalizeChatInput(it) },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = {
+                                Text(
+                                    if (pendingAttachments.isEmpty()) "Ask about circuits…"
+                                    else "Ask about the attached files…"
+                                )
+                            },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = { send(input) }),
+                            maxLines = 5,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            )
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    AnimatedVisibility(
+                        visible = isThinking,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
+                        FilledIconButton(
+                            onClick = { assistantViewModel.stopGenerating() },
+                            modifier = Modifier.size(sizes.inputButton)
+                        ) {
+                            Icon(Icons.Default.Stop, contentDescription = "Stop")
+                        }
+                    }
+                    if (!isThinking) {
+                        FilledIconButton(
+                            onClick = { send(input) },
+                            enabled = input.isNotBlank() || pendingAttachments.isNotEmpty(),
+                            modifier = Modifier.size(sizes.inputButton)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
+                        }
                     }
                 }
             }
@@ -603,6 +751,151 @@ fun AssistantScreen(
         )
     }
     } // ModalNavigationDrawer
+}
+
+/**
+ * Prompt-attachment UI: pending chips above the input, name refs in edit mode,
+ * and tappable file rows inside user bubbles. Shapes follow
+ * [LocalButtonShape] so ROUNDED/PILL/SQUARE applies to the prompt widget too.
+ */
+
+private fun attachmentIcon(kind: AttachmentKind) = when (kind) {
+    AttachmentKind.IMAGE -> Icons.Default.Image
+    AttachmentKind.DOC -> Icons.Default.Description
+    AttachmentKind.OTHER -> Icons.AutoMirrored.Filled.InsertDriveFile
+}
+
+private fun openUpload(context: android.content.Context, a: StoredAttachment) {
+    try {
+        val file = java.io.File(a.localPath)
+        if (a.localPath.isBlank() || !file.isFile) {
+            Toast.makeText(context, "File no longer on this device — re-attach it", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context, "${context.packageName}.fileprovider", file
+        )
+        val mime = context.contentResolver.getType(uri) ?: a.mimeType.ifBlank { "*/*" }
+        val view = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, mime)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(android.content.Intent.createChooser(view, "Open ${a.name}"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Can't open file: ${e.message}", Toast.LENGTH_LONG).show()
+    }
+}
+
+@Composable
+private fun PendingAttachmentChip(
+    attachment: StoredAttachment,
+    onRemove: () -> Unit
+) {
+    Surface(
+        shape = LocalButtonShape.current,
+        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp)
+        ) {
+            Icon(
+                attachmentIcon(attachment.kind),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(Modifier.width(6.dp))
+            Column {
+                Text(
+                    attachment.name.ifBlank { "file" },
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (attachment.sizeBytes > 0) {
+                    Text(
+                        formatFileSize(attachment.sizeBytes),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            IconButton(onClick = onRemove, modifier = Modifier.size(28.dp)) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Remove ${attachment.name}",
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AttachmentRefRow(attachments: List<StoredAttachment>) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(
+            Icons.Default.AttachFile,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(16.dp)
+        )
+        Text(
+            attachmentRefLine(attachments),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun UserAttachmentList(
+    attachments: List<StoredAttachment>,
+    onOpen: (StoredAttachment) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        attachments.forEach { a ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { onOpen(a) }
+            ) {
+                Icon(
+                    attachmentIcon(a.kind),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    a.name.ifBlank { "file" },
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (a.sizeBytes > 0) {
+                    Text(
+                        formatFileSize(a.sizeBytes),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+    }
 }
 
 /**
@@ -738,30 +1031,73 @@ private fun ModelDropdownRow(
 }
 
 /**
- * Thinking row: no spinner — an expand button toggles the
- * working details (tool steps). Collapsed shows the dynamic title
- * ("Validating…", "Applying…") or the finished summary ("Validated • 4 steps").
+ * Thinking row: tappable card with a live spinner (while running) or grouped
+ * search summary (`Found 20 pages • Read 4 pages`) with tappable stacked site
+ * icons. Tapping an icon opens that site's page dialog; expanding shows the
+ * grouped summary plus the per-tool activity timeline.
  */
 @Composable
 private fun ThinkingRow(
     title: String,
-    steps: List<String>,
+    steps: List<ChatMsg>,
+    isLive: Boolean = false,
     emptyHint: String = "Working through your request…"
 ) {
     var expanded by remember { mutableStateOf(false) }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 4.dp, vertical = 6.dp)
-        ) {
-            IconButton(
-                onClick = { expanded = !expanded },
-                modifier = Modifier.size(32.dp)
+    var hostDialog by remember(steps) { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val summary = remember(steps) { parseSearchSummary(steps) }
+    val headerHosts = remember(summary) {
+        (summary.foundHosts + summary.foundSamples.map { it.host } +
+            summary.readOk.map { it.host } + summary.imageHosts).distinct().take(8)
+    }
+    // Fully failed turns (no pages found/read, every step an error) render
+    // the header in the error tone so failures read as failures collapsed.
+    val headerError = remember(steps, summary) {
+        steps.isNotEmpty() && !summary.hasSearch && steps.all { isErrorStep(it.text) }
+    }
+    fun openPage(url: String) = openUrl(context, url)
+
+    Surface(
+        tonalElevation = 1.dp,
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 4.dp, vertical = 6.dp)
             ) {
+                if (isLive) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = if (headerError) MaterialTheme.colorScheme.error
+                    else MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                if (headerHosts.isNotEmpty()) {
+                    StackedSiteIcons(
+                        hosts = headerHosts,
+                        iconSize = 24.dp,
+                        onHostClick = { hostDialog = it }
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
                 Icon(
                     if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                     contentDescription = if (expanded) "Collapse thinking" else "Expand thinking",
@@ -769,39 +1105,53 @@ private fun ThinkingRow(
                     modifier = Modifier.size(20.dp)
                 )
             }
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            Column(
-                modifier = Modifier.padding(start = 40.dp, end = 8.dp, bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(),
+                exit = fadeOut()
             ) {
-                if (steps.isEmpty()) {
-                    Text(
-                        emptyHint,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                } else {
-                    steps.forEach { step ->
+                Column(
+                    modifier = Modifier.padding(start = 12.dp, end = 8.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    if (steps.isEmpty()) {
                         Text(
-                            step,
+                            emptyHint,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    } else {
+                        if (summary.hasSearch) {
+                            SearchSummaryBlock(
+                                summary,
+                                onHostClick = { hostDialog = it },
+                                onOpenPage = ::openPage
+                            )
+                            HorizontalDivider()
+                        }
+                        Text(
+                            "Activity • ${steps.size} steps",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            steps.forEach { step ->
+                                ToolStepRow(step.text)
+                            }
+                        }
                     }
                 }
             }
         }
+    }
+    hostDialog?.let { host ->
+        HostPagesDialog(
+            host = host,
+            pages = pagesForHost(summary, host),
+            onDismiss = { hostDialog = null },
+            onOpenPage = ::openPage
+        )
     }
 }
 

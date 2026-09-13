@@ -1,8 +1,62 @@
 package com.jnd.ngdroid.agent
 
 data class AgentConfig(
-    val maxIterations: Int = 8
+    val maxIterations: Int = 8,
+    /** Extra turns granted when the model ends with a promise but no payload. */
+    val maxStubRetries: Int = 1
 )
+
+/** Tools whose use promises deliverables (netlist, links, images, files) in the reply. */
+private val contentToolNames = setOf(
+    "web_search", "fetch_url", "curl_fetch", "image_search",
+    "netlist_template", "validate_netlist", "apply_netlist",
+    "download_file", "read_file", "list_files"
+)
+
+private val promisePhrases = listOf(
+    "coming up", "coming right up", "i'll pull", "i'll fetch", "i'll get",
+    "i'll put together", "let me ", "one moment", "one sec", "moment please",
+    "building your", "putting together", "putting that", "working on it",
+    "stay tuned", "bear with", "fetching", "gathering", "looking that up",
+    "looking it up", "looking into", "on it", "right away", "give me a",
+    "hold on", "hold tight", "hang on", "stand by", "in a moment",
+    "in just a moment", "shortly", "almost done", "almost ready",
+    "just a sec", "pulling", "downloading", "grabbing", "getting them",
+    "getting those", "getting that", "getting it", "preparing", "assembling",
+    "compiling", "be right back", "back in a", "will pull", "will fetch",
+    "will get", "will grab", "will put"
+)
+
+/** True when the text carries something usable: code, image, link, or saved file. Pure. */
+fun finalHasPayload(text: String): Boolean {
+    if ("```" in text) return true
+    if (Regex("""!\[[^\]]*]\([^)]+\)""").containsMatchIn(text)) return true
+    if (Regex("""https?://""").containsMatchIn(text)) return true
+    val lower = text.lowercase()
+    if ("downloads/ngdroid" in lower || "assistant_files" in lower) return true
+    if (Regex("""saved .+\.(pdf|png|jpe?g|gif|webp|svg|ico|zip|csv|txt|md|json)""").containsMatchIn(lower)) return true
+    return false
+}
+
+/**
+ * True when the final reply reads like a promise ("coming up", "I'll pull…",
+ * trailing "…:") yet contains no netlist, link, or image. Pure; JVM-testable.
+ */
+fun isPromiseWithoutPayload(text: String): Boolean {
+    if (finalHasPayload(text)) return false
+    val lower = text.trim().lowercase()
+    if (lower.isEmpty()) return false
+    if (promisePhrases.any { it in lower }) return true
+    return lower.endsWith(":")
+}
+
+/** Nudge appended as a user turn when the guard fires. */
+const val STUB_RETRY_NUDGE: String =
+    "Your last reply promises results but contains no netlist code block, " +
+        "link, image, or saved file. Deliver them now in this reply: include the validated " +
+        "netlist in a fenced code block and any links, " +
+        "![description](image-url) images, or Downloads/NGDroid file locations. " +
+        "Do not end with another promise."
 
 sealed interface AgentEvent {
     data class Message(val text: String) : AgentEvent
@@ -35,8 +89,10 @@ class AgentOrchestrator(
         val llmTools = tools.list().map { LlmTool(it.name, it.description, it.parametersJsonSchema) }
         var lastText = ""
         var iterations = 0
+        var stubRetries = 0
+        var contentToolUsed = false
 
-        while (iterations < config.maxIterations) {
+        while (iterations < config.maxIterations + stubRetries) {
             iterations++
             val req = LlmRequest(
                 systemPrompt = SPICE_SYSTEM,
@@ -53,8 +109,20 @@ class AgentOrchestrator(
             if (resp.text.isNotBlank()) lastText = resp.text
 
             if (resp.toolCalls.isEmpty()) {
+                val text = resp.text.ifBlank { lastText.ifBlank { "(empty response)" } }
+                // Stub guard: tools ran but the "final" reply is a promise with
+                // no netlist, link, or image — grant one nudge turn instead of
+                // showing "coming up" with nothing behind it.
+                if (stubRetries < config.maxStubRetries &&
+                    contentToolUsed && isPromiseWithoutPayload(text)
+                ) {
+                    stubRetries++
+                    conversation.add(ChatMessage(ChatRole.ASSISTANT, resp.text))
+                    conversation.add(ChatMessage(ChatRole.USER, STUB_RETRY_NUDGE))
+                    continue
+                }
                 if (resp.text.isNotBlank()) onEvent(AgentEvent.Message(resp.text))
-                return resp.text.ifBlank { lastText.ifBlank { "(empty response)" } }
+                return text
             }
 
             conversation.add(
@@ -67,6 +135,7 @@ class AgentOrchestrator(
 
             for (tc in resp.toolCalls) {
                 onEvent(AgentEvent.ToolCallEvent(tc.name, tc.argumentsJson))
+                if (tc.name in contentToolNames) contentToolUsed = true
                 val tool = tools.get(tc.name)
                 val output = if (tool == null) {
                     "ERROR: unknown tool '${tc.name}'"

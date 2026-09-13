@@ -39,7 +39,8 @@ fun ChatMsg.toStored(): StoredMsg = StoredMsg(
         ChatRoleUi.SYSTEM -> StoredMsgRole.SYSTEM
     },
     text = text,
-    timestampMillis = System.currentTimeMillis()
+    timestampMillis = System.currentTimeMillis(),
+    attachments = attachments
 )
 
 fun StoredMsg.toUi(): ChatMsg = ChatMsg(
@@ -49,7 +50,8 @@ fun StoredMsg.toUi(): ChatMsg = ChatMsg(
         StoredMsgRole.ASSISTANT -> ChatRoleUi.ASSISTANT
         StoredMsgRole.SYSTEM -> ChatRoleUi.SYSTEM
     },
-    text = text
+    text = text,
+    attachments = attachments
 )
 
 /** Case-insensitive title/message search for the drawer search box. */
@@ -58,6 +60,9 @@ fun filterSessions(sessions: List<ChatSession>, query: String): List<ChatSession
     if (q.isEmpty()) return sessions
     return sessions.filter { s ->
         s.title.lowercase().contains(q) ||
-            s.messages.any { it.text.lowercase().contains(q) }
+            s.messages.any { m ->
+                m.text.lowercase().contains(q) ||
+                    m.attachments.any { it.name.lowercase().contains(q) }
+            }
     }
 }

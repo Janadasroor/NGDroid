@@ -12,9 +12,14 @@ import com.jnd.ngdroid.agent.ChatMessage
 import com.jnd.ngdroid.agent.ChatRole
 import com.jnd.ngdroid.agent.GeminiProvider
 import com.jnd.ngdroid.agent.GenerateNetlistTemplateTool
+import com.jnd.ngdroid.agent.CurlFetchTool
+import com.jnd.ngdroid.agent.DownloadFileTool
 import com.jnd.ngdroid.agent.FetchUrlTool
+import com.jnd.ngdroid.agent.ImageSearchTool
 import com.jnd.ngdroid.agent.HttpClients
 import com.jnd.ngdroid.agent.MapToolRegistry
+import com.jnd.ngdroid.agent.ReadFileTool
+import com.jnd.ngdroid.data.AndroidAssistantFileStore
 import com.jnd.ngdroid.agent.SpiceAppBridge
 import com.jnd.ngdroid.agent.ValidateNetlistTool
 import com.jnd.ngdroid.agent.WebSearchTool
@@ -22,7 +27,10 @@ import com.jnd.ngdroid.agent.ZenProvider
 import com.jnd.ngdroid.data.AgentDataStore
 import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
+import com.jnd.ngdroid.data.AndroidUploadStore
 import com.jnd.ngdroid.data.ChatHistoryStore
+import com.jnd.ngdroid.data.StoredAttachment
+import com.jnd.ngdroid.data.describeUploads
 import com.jnd.ngdroid.data.ChatSession
 import com.jnd.ngdroid.data.NetworkMonitor
 import kotlinx.coroutines.Job
@@ -41,7 +49,8 @@ enum class ChatRoleUi { USER, ASSISTANT, SYSTEM }
 data class ChatMsg(
     val id: String = UUID.randomUUID().toString(),
     val role: ChatRoleUi,
-    val text: String
+    val text: String,
+    val attachments: List<StoredAttachment> = emptyList()
 )
 
 /** Bridge to the simulation screen: apply netlist text, read current, run sim. */
@@ -299,7 +308,13 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         val out = mutableListOf<ChatMessage>()
         for (m in messages) {
             when (m.role) {
-                ChatRoleUi.USER -> out.add(ChatMessage(ChatRole.USER, m.text))
+                // Past attachments keep a name ref so follow-ups stay coherent
+                // without re-reading files; the live turn injects full content.
+                ChatRoleUi.USER -> {
+                    val ref = attachmentRefLine(m.attachments)
+                    val text = if (ref.isEmpty()) m.text else "${m.text}\n$ref"
+                    out.add(ChatMessage(ChatRole.USER, text))
+                }
                 ChatRoleUi.ASSISTANT -> out.add(ChatMessage(ChatRole.ASSISTANT, m.text))
                 ChatRoleUi.SYSTEM -> { /* tool progress lines: UI-only */ }
             }
@@ -526,19 +541,24 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     /**
      * Sends a chat turn. Returns true when the turn started (caller clears
-     * its input); false when nothing was sent (blank, this chat busy, or
-     * offline — offline also posts a one-time notice, input is kept).
-     * Other chats' background runs are never affected.
+     * its input); false when nothing was sent (blank with no attachments,
+     * this chat busy, or offline — offline also posts a one-time notice,
+     * input is kept). Other chats' background runs are never affected.
      */
-    fun sendMessage(text: String, simBridge: SimBridge): Boolean {
+    fun sendMessage(
+        text: String,
+        simBridge: SimBridge,
+        attachments: List<StoredAttachment> = emptyList()
+    ): Boolean {
         val clean = text.trim()
-        if (clean.isEmpty()) return false
+        val files = attachments.take(MAX_ATTACHMENTS_PER_MESSAGE)
+        if (clean.isEmpty() && files.isEmpty()) return false
         if (!netMonitor.isOnline.value) return notifyOffline()
         val id = ensureActiveId()
         if (runtime(id).thinking) return false
         val s = _settings.value
         val key = s.activeApiKey()
-        appendToChat(id, ChatMsg(role = ChatRoleUi.USER, text = clean))
+        appendToChat(id, ChatMsg(role = ChatRoleUi.USER, text = clean, attachments = files))
         val model = s.selectedModel.trim()
         if (model.isEmpty()) {
             appendToChat(
@@ -564,28 +584,32 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             )
             return true
         }
-        runAgentTurn(id, clean, s, key, model, simBridge)
+        runAgentTurn(id, clean, s, key, model, simBridge, files)
         return true
     }
 
     /**
      * Edit a user prompt end-to-end: truncate everything after it, replace its
      * text, then regenerate from that point. Drops this chat's in-flight run;
-     * other chats are untouched.
+     * other chats are untouched. The prompt's attachments are kept.
      * Returns false when nothing was sent (offline keeps the draft open).
      */
     fun editAndResend(msgId: String, newText: String, simBridge: SimBridge): Boolean {
         val clean = newText.trim()
         val id = _activeChatId.value ?: return false
         val rt = runtime(id)
-        if (clean.isEmpty() || rt.thinking) return false
+        if (rt.thinking) return false
         if (!netMonitor.isOnline.value) return notifyOffline()
         val idx = rt.messages.indexOfFirst { it.id == msgId && it.role == ChatRoleUi.USER }
         if (idx < 0) return false
+        // File-only prompts may have empty text; only block empty text with no files.
+        val kept = rt.messages[idx].attachments
+        if (clean.isEmpty() && kept.isEmpty()) return false
         rt.job?.cancel()
         rt.job = null
         val truncated = truncateAfter(rt.messages, msgId).toMutableList()
         truncated[idx] = truncated[idx].copy(text = clean)
+        val files = truncated[idx].attachments
         rt.messages = truncated
         _messages.value = truncated
         rt.history.clear()
@@ -619,7 +643,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             )
             return true
         }
-        runAgentTurn(id, clean, s, key, model, simBridge)
+        runAgentTurn(id, clean, s, key, model, simBridge, files)
         return true
     }
 
@@ -646,13 +670,29 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         s: AgentSettings,
         key: String,
         model: String,
-        simBridge: SimBridge
+        simBridge: SimBridge,
+        attachments: List<StoredAttachment> = emptyList()
     ) {
         val rt = runtime(id)
         rt.job?.cancel()
         rt.job = viewModelScope.launch {
             setChatThinking(id, true)
             setChatStatus(id, "Contacting ${s.provider.displayName}…")
+            // Attached images/docs are read on-device and appended to the
+            // prompt as text — the chat models are text-only.
+            val files = attachments.take(MAX_ATTACHMENTS_PER_MESSAGE)
+            if (files.isNotEmpty()) {
+                setChatStatus(id, "Reading ${files.size} attached file${if (files.size == 1) "" else "s"}…")
+            }
+            val enriched = try {
+                if (files.isEmpty()) clean
+                else buildAgentUserText(
+                    clean.ifBlank { "(no typed prompt — see the attached files)" },
+                    describeUploads(AndroidUploadStore(getApplication()), files)
+                )
+            } catch (_: Exception) {
+                clean
+            }
             try {
                 val provider = buildProvider(s, key, model)
                 val bridge = object : SpiceAppBridge {
@@ -668,33 +708,39 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                         "Simulation started"
                     } catch (e: Exception) { "ERROR: ${e.message}" }
                 }
+                val fileStore = AndroidAssistantFileStore(getApplication())
                 val registry = MapToolRegistry().apply {
                     register(ValidateNetlistTool())
                     register(GenerateNetlistTemplateTool())
                     register(ApplyNetlistTool(bridge))
                     register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
+                    register(ImageSearchTool(searchKeyProvider = { s.searchApiKey }))
                     register(FetchUrlTool())
+                    register(CurlFetchTool())
+                    register(DownloadFileTool(HttpClients.okHttpBytes(), fileStore))
+                    register(ReadFileTool(fileStore))
                 }
                 val agent = AgentOrchestrator(AgentConfig(maxIterations = 12), provider, registry)
                 // Raw provider failures become short friendly sentences (no JSON/URLs).
+                // Pending tool args let observations embed their source URL/counts
+                // (fetch reads, search totals) for the thinking summary.
+                val pendingArgs = ArrayDeque<Pair<String, String>>()
                 val answer = agent.run(
-                    clean,
+                    enriched,
                     rt.history.toList(),
                     { event ->
                     when (event) {
                         is AgentEvent.ToolCallEvent -> {
-                            appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = "Calling ${event.name}…"))
-                            setChatStatus(id, "Calling ${event.name}…")
+                            pendingArgs.add(event.name to event.argsJson)
+                            val label = toolCallLabel(event.name, event.argsJson)
+                            appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = label))
+                            setChatStatus(id, label)
                         }
                         is AgentEvent.Observation -> {
-                            val out = event.output
-                            val snippet = when {
-                                out == "VALID" -> "VALID"
-                                out.startsWith("ERROR") || out.startsWith("INVALID") ->
-                                    "Error: ${out.take(220)}"
-                                else -> out.take(220)
-                            }
-                            appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = "${event.toolName}: $snippet"))
+                            val idx = pendingArgs.indexOfFirst { it.first == event.toolName }
+                            val args = if (idx >= 0) pendingArgs.removeAt(idx).second else ""
+                            val line = summarizeObservation(event.toolName, event.output, args)
+                            appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = line))
                             setChatStatus(id, null)
                         }
                         is AgentEvent.Error -> {
@@ -705,7 +751,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     },
                     errorFormatter = { AgentErrors.format(it, model) }
                 )
-                rt.history.add(ChatMessage(ChatRole.USER, clean))
+                rt.history.add(ChatMessage(ChatRole.USER, enriched))
                 rt.history.add(ChatMessage(ChatRole.ASSISTANT, answer))
                 appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = answer.ifBlank { "(empty response)" }))
             } catch (e: Exception) {

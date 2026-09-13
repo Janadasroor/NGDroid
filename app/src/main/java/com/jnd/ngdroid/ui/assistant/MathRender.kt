@@ -30,20 +30,33 @@ import androidx.compose.ui.unit.sp
 import com.mikepenz.markdown.m3.Markdown
 
 /**
- * Assistant message body with native math support.
+ * Assistant message body with native math support and chat-scaled markdown.
  *
  * Plain messages render exactly as before (single [Markdown] call).
  * Messages with display math (`$$…$$`, `\[…\]`) render as prose cards
  * interleaved with centered [MathDisplayCard]s; inline math (`$…$`, `\(…\)`)
  * is prettified to readable Unicode inside the prose so lists and tables
  * keep working. No WebView: offline, themed, and list-friendly.
+ *
+ * Headings use [chatMarkdownTypography] (compact 22→12sp bold ladder, not
+ * full-page display sizes) and [chatMarkdownColors] (light/dark-aware), and
+ * `#Title` without a space is fixed by [normalizeMarkdownForChat].
  */
 @Composable
 fun AssistantMarkdownWithMath(text: String) {
-    val segments = remember(text) { parseDocSegments(text) }
+    val normalized = remember(text) { normalizeMarkdownForChat(text) }
+    val segments = remember(normalized) { parseDocSegments(normalized) }
+    val colors = chatMarkdownColors()
+    val typography = chatMarkdownTypography()
     if (segments.none { it is DocSegment.DisplayMath }) {
-        val pretty = remember(text) { prettifyInlineMath(text) }
-        Markdown(pretty, imageTransformer = AssistantImageTransformer)
+        val pretty = remember(normalized) { prettifyInlineMath(normalized) }
+        Markdown(
+            pretty,
+            colors = colors,
+            typography = typography,
+            modifier = chatMarkdownModifier(),
+            imageTransformer = AssistantImageTransformer
+        )
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             segments.forEach { seg ->
@@ -52,6 +65,9 @@ fun AssistantMarkdownWithMath(text: String) {
                         if (seg.text.isNotBlank()) {
                             Markdown(
                                 remember(seg.text) { prettifyInlineMath(seg.text) },
+                                colors = colors,
+                                typography = typography,
+                                modifier = chatMarkdownModifier(),
                                 imageTransformer = AssistantImageTransformer
                             )
                         }

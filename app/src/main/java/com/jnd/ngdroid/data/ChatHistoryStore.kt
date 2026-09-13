@@ -27,7 +27,8 @@ object ChatJsonCodec {
                 s.createdAtMillis.toString(),
                 s.updatedAtMillis.toString(),
                 s.messages.joinToString(MSG_SEP) { m ->
-                    "${escape(m.id)}|${m.role.name}|${m.timestampMillis}|${escape(m.text)}"
+                    "${escape(m.id)}|${m.role.name}|${m.timestampMillis}|${escape(m.text)}|" +
+                        escape(AttachmentCodec.encode(m.attachments))
                 }
             ).joinToString("\n")
         }
@@ -43,8 +44,9 @@ object ChatJsonCodec {
                 emptyList()
             } else {
                 lines[6].split(MSG_SEP).mapNotNull { mline ->
-                    val tokens = mline.split("|", limit = 4)
-                    if (tokens.size == 4) {
+                    // 5 tokens with attachments; legacy 4-token rows decode with none.
+                    val tokens = mline.split("|", limit = 5)
+                    if (tokens.size == 4 || tokens.size == 5) {
                         val role = try {
                             StoredMsgRole.valueOf(tokens[1])
                         } catch (_: Exception) {
@@ -54,7 +56,10 @@ object ChatJsonCodec {
                             id = unescape(tokens[0]),
                             role = role,
                             timestampMillis = tokens[2].toLongOrNull() ?: System.currentTimeMillis(),
-                            text = unescape(tokens[3])
+                            text = unescape(tokens[3]),
+                            attachments = if (tokens.size == 5) {
+                                AttachmentCodec.decode(unescape(tokens[4]))
+                            } else emptyList()
                         )
                     } else null
                 }

@@ -3,4 +3,6 @@
     <cache-path name="csv_exports" path="csv_exports/" />
     <cache-path name="png_exports" path="png_exports/" />
     <cache-path name="pdf_exports" path="pdf_exports/" />
+    <files-path name="assistant_files" path="assistant_files/" />
+    <files-path name="uploads" path="uploads/" />
 </paths>
