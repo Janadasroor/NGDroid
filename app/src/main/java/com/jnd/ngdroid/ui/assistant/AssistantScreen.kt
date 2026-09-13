@@ -102,6 +102,7 @@ import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
+import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -575,6 +576,7 @@ fun AssistantScreen(
     }
 
     if (deleteTargetId != null) {
+        LockOrientationWhileShown()
         AlertDialog(
             onDismissRequest = { deleteTargetId = null },
             title = { Text("Delete chat?") },
@@ -888,6 +890,7 @@ private fun ModelsDialog(
     assistantViewModel: AssistantViewModel,
     onDismiss: () -> Unit
 ) {
+    LockOrientationWhileShown()
     val settings by assistantViewModel.settings.collectAsState()
     val models by assistantViewModel.models.collectAsState()
     val freeModels by assistantViewModel.freeModels.collectAsState()

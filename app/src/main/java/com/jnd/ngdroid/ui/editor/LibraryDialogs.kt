@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jnd.ngdroid.engine.PresetNetlist
+import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
 
 @Composable
 fun SaveCircuitDialog(
@@ -56,6 +57,7 @@ fun SaveCircuitDialog(
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit
 ) {
+    LockOrientationWhileShown()
     var title by remember(initialTitle) { mutableStateOf(initialTitle) }
     val focusRequester = remember { FocusRequester() }
 
@@ -103,6 +105,7 @@ fun ConfirmDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit
 ) {
+    LockOrientationWhileShown()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -122,6 +125,7 @@ fun ExamplesPickerDialog(
     onDismiss: () -> Unit,
     onSelectPreset: (PresetNetlist) -> Unit
 ) {
+    LockOrientationWhileShown()
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("All") }
 

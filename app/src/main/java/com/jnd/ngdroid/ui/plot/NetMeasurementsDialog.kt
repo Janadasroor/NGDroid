@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.engine.NetMeasurements
+import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
 import java.util.Locale
 import kotlin.math.abs
 
@@ -28,6 +29,7 @@ fun NetMeasurementsDialog(
     measurements: NetMeasurements,
     onDismiss: () -> Unit
 ) {
+    LockOrientationWhileShown()
     val isCurrent = measurements.netName.endsWith("#branch") || measurements.netName.startsWith("i(") || measurements.netName.startsWith("I(")
     val unitStr = if (isCurrent) "A" else "V"
 
