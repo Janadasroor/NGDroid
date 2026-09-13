@@ -3,6 +3,7 @@ package com.jnd.ngdroid.ui.assistant
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -48,6 +49,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -448,6 +450,49 @@ fun AssistantScreen(
                                         onNavigateToPlot?.invoke()
                                     }
                                 )
+                            }
+                            // Finished response only: icons-only copy + share of the
+                            // whole response text, tucked at the bottom of the bubble.
+                            if (!isThinking) {
+                                Spacer(Modifier.height(2.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            copyToClipboard(context, msg.text)
+                                            Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ContentCopy,
+                                            contentDescription = "Copy response",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            val share = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_TEXT, msg.text)
+                                            }
+                                            context.startActivity(
+                                                Intent.createChooser(share, "Share response")
+                                            )
+                                        },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Share,
+                                            contentDescription = "Share response",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
