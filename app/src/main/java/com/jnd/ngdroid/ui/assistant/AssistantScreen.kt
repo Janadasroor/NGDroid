@@ -102,6 +102,7 @@ import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
+import com.jnd.ngdroid.ui.theme.LocalDialogShape
 import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -579,16 +580,23 @@ fun AssistantScreen(
         LockOrientationWhileShown()
         AlertDialog(
             onDismissRequest = { deleteTargetId = null },
+            shape = LocalDialogShape.current,
             title = { Text("Delete chat?") },
             text = { Text("This removes the saved conversation permanently.") },
             confirmButton = {
-                TextButton(onClick = {
-                    deleteTargetId?.let { assistantViewModel.deleteChat(it) }
-                    deleteTargetId = null
-                }) { Text("Delete") }
+                TextButton(
+                    onClick = {
+                        deleteTargetId?.let { assistantViewModel.deleteChat(it) }
+                        deleteTargetId = null
+                    },
+                    shape = LocalButtonShape.current
+                ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { deleteTargetId = null }) { Text("Cancel") }
+                TextButton(
+                    onClick = { deleteTargetId = null },
+                    shape = LocalButtonShape.current
+                ) { Text("Cancel") }
             }
         )
     }
@@ -904,6 +912,7 @@ private fun ModelsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = LocalDialogShape.current,
         title = { Text("Choose model") },
         text = {
             Column(
@@ -940,7 +949,8 @@ private fun ModelsDialog(
                 ) {
                     OutlinedButton(
                         onClick = { assistantViewModel.refreshModels() },
-                        enabled = !loading
+                        enabled = !loading,
+                        shape = LocalButtonShape.current
                     ) {
                         Icon(
                             Icons.Default.Refresh,

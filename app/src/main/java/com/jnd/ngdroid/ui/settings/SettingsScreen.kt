@@ -191,6 +191,33 @@ fun SettingsScreen(
                         )
                     }
                 }
+
+                Text("Dialog Corners (${settings.dialogCornerRadiusDp} dp)")
+                Text(
+                    text = "Applies to popup dialogs; their buttons follow Button Style.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Square / Round")
+                    Slider(
+                        value = settings.dialogCornerRadiusDp.toFloat(),
+                        onValueChange = { radius ->
+                            onSettingsChanged { it.copy(dialogCornerRadiusDp = radius.toInt()) }
+                        },
+                        valueRange = 0f..28f,
+                        steps = 27,
+                        modifier = Modifier
+                            .width(160.dp)
+                            .semantics {
+                                contentDescription = "Dialog corner radius ${settings.dialogCornerRadiusDp} dp"
+                            }
+                    )
+                }
             }
         }
 

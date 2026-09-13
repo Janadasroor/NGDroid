@@ -20,6 +20,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.engine.NetMeasurements
+import com.jnd.ngdroid.ui.theme.LocalButtonShape
+import com.jnd.ngdroid.ui.theme.LocalDialogShape
+import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
 import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
 import java.util.Locale
 import kotlin.math.abs
@@ -35,6 +38,7 @@ fun NetMeasurementsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = LocalDialogShape.current,
         title = {
             Column {
                 Text(
@@ -82,7 +86,10 @@ fun NetMeasurementsDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
+            TextButton(
+                onClick = onDismiss,
+                shape = LocalButtonShape.current
+            ) {
                 Text("Close")
             }
         }

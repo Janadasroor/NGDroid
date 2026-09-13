@@ -78,4 +78,13 @@ class AdaptiveTest {
         assertTrue(buttonShapeFor(ButtonStyle.SQUARE).toString().contains("4.0.dp"))
         assertTrue(buttonShapeFor(ButtonStyle.ROUNDED) is RoundedCornerShape)
     }
+
+    @Test
+    fun dialogShapeFollowsSetting() {
+        assertTrue(dialogShapeFor(28) is RoundedCornerShape)
+        assertTrue(dialogShapeFor(0).toString().contains("0.0.dp"))
+        // Out-of-range values clamp to the 0..28 slider range.
+        assertEquals(dialogShapeFor(28).toString(), dialogShapeFor(99).toString())
+        assertEquals(dialogShapeFor(0).toString(), dialogShapeFor(-5).toString())
+    }
 }

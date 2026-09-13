@@ -87,3 +87,9 @@ fun buttonShapeFor(style: ButtonStyle): Shape = RoundedCornerShape(style.cornerD
 
 /** Action-button shape, provided at the app root from Settings. */
 val LocalButtonShape = staticCompositionLocalOf<Shape> { RoundedCornerShape(12.dp) }
+
+/** Dialog container shape from settings (corner dp, clamped to 0..28). Pure — JVM-testable. */
+fun dialogShapeFor(cornerDp: Int): Shape = RoundedCornerShape(cornerDp.coerceIn(0, 28).dp)
+
+/** Dialog container shape, provided at the app root from Settings. */
+val LocalDialogShape = staticCompositionLocalOf<Shape> { RoundedCornerShape(28.dp) }

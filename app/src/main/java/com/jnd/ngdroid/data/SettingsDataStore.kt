@@ -26,6 +26,7 @@ class SettingsDataStore(private val context: Context) {
         val SHOW_GRID_LINES = booleanPreferencesKey("show_grid_lines")
         val SHOW_DATA_POINTS = booleanPreferencesKey("show_data_points")
         val TRACE_STROKE_WIDTH = floatPreferencesKey("trace_stroke_width")
+        val DIALOG_CORNER_RADIUS = intPreferencesKey("dialog_corner_radius")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data.map { prefs ->
@@ -42,7 +43,8 @@ class SettingsDataStore(private val context: Context) {
             darkPlotBackground = prefs[Keys.DARK_PLOT_BG] ?: true,
             showGridLines = prefs[Keys.SHOW_GRID_LINES] ?: true,
             showDataPoints = prefs[Keys.SHOW_DATA_POINTS] ?: false,
-            traceStrokeWidthDp = prefs[Keys.TRACE_STROKE_WIDTH] ?: 2.5f
+            traceStrokeWidthDp = prefs[Keys.TRACE_STROKE_WIDTH] ?: 2.5f,
+            dialogCornerRadiusDp = prefs[Keys.DIALOG_CORNER_RADIUS] ?: 28
         )
     }
 
@@ -57,6 +59,7 @@ class SettingsDataStore(private val context: Context) {
             prefs[Keys.SHOW_GRID_LINES] = settings.showGridLines
             prefs[Keys.SHOW_DATA_POINTS] = settings.showDataPoints
             prefs[Keys.TRACE_STROKE_WIDTH] = settings.traceStrokeWidthDp
+            prefs[Keys.DIALOG_CORNER_RADIUS] = settings.dialogCornerRadiusDp
         }
     }
 }

@@ -29,5 +29,7 @@ data class AppSettings(
     val traceStrokeWidthDp: Float = 2.5f,
     val showGridLines: Boolean = true,
     val showDataPoints: Boolean = false,
-    val darkPlotBackground: Boolean = true
+    val darkPlotBackground: Boolean = true,
+    /** Dialog container corner radius in dp (0 = square, 28 = Material default). */
+    val dialogCornerRadiusDp: Int = 28
 )

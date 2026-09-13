@@ -46,8 +46,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.jnd.ngdroid.engine.PresetNetlist
+import com.jnd.ngdroid.ui.theme.LocalButtonShape
+import com.jnd.ngdroid.ui.theme.LocalDialogShape
 import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
 
 @Composable
@@ -63,6 +66,7 @@ fun SaveCircuitDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = LocalDialogShape.current,
         title = { Text(if (isOverwrite) "Save Circuit" else "Save As New Circuit") },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -82,13 +86,17 @@ fun SaveCircuitDialog(
         confirmButton = {
             TextButton(
                 onClick = { onConfirm(title.trim()) },
-                enabled = title.trim().isNotEmpty()
+                enabled = title.trim().isNotEmpty(),
+                shape = LocalButtonShape.current
             ) {
                 Text(if (isOverwrite) "Save" else "Save As")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(
+                onClick = onDismiss,
+                shape = LocalButtonShape.current
+            ) { Text("Cancel") }
         }
     )
 
@@ -108,13 +116,20 @@ fun ConfirmDialog(
     LockOrientationWhileShown()
     AlertDialog(
         onDismissRequest = onDismiss,
+        shape = LocalDialogShape.current,
         title = { Text(title) },
         text = { Text(message) },
         confirmButton = {
-            TextButton(onClick = onConfirm) { Text(confirmLabel) }
+            TextButton(
+                onClick = onConfirm,
+                shape = LocalButtonShape.current
+            ) { Text(confirmLabel) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(
+                onClick = onDismiss,
+                shape = LocalButtonShape.current
+            ) { Text("Cancel") }
         }
     )
 }
@@ -152,7 +167,7 @@ fun ExamplesPickerDialog(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .fillMaxHeight(0.85f),
-            shape = MaterialTheme.shapes.extraLarge,
+            shape = LocalDialogShape.current,
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {
@@ -250,10 +265,13 @@ fun ExamplesPickerDialog(
                                 style = MaterialTheme.typography.bodyLarge
                             )
                             if (searchQuery.isNotEmpty() || selectedCategory != "All") {
-                                TextButton(onClick = {
-                                    searchQuery = ""
-                                    selectedCategory = "All"
-                                }) {
+                                TextButton(
+                                    onClick = {
+                                        searchQuery = ""
+                                        selectedCategory = "All"
+                                    },
+                                    shape = LocalButtonShape.current
+                                ) {
                                     Text("Reset Filters")
                                 }
                             }
@@ -359,7 +377,10 @@ private fun ExampleCardItem(
                     }
                 }
 
-                TextButton(onClick = onClick) {
+                TextButton(
+                    onClick = onClick,
+                    shape = LocalButtonShape.current
+                ) {
                     Text("Load Circuit")
                     Spacer(Modifier.width(4.dp))
                     Icon(

@@ -41,7 +41,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jnd.ngdroid.data.ThemeMode
 import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
+import com.jnd.ngdroid.ui.theme.LocalDialogShape
 import com.jnd.ngdroid.ui.theme.buttonShapeFor
+import com.jnd.ngdroid.ui.theme.dialogShapeFor
 import com.jnd.ngdroid.ui.console.ConsoleScreen
 import com.jnd.ngdroid.ui.data.DataScreen
 import com.jnd.ngdroid.ui.editor.NetlistEditorScreen
@@ -86,6 +88,9 @@ fun MainScreen(
         CompositionLocalProvider(
             LocalButtonShape provides remember(settings.buttonStyle) {
                 buttonShapeFor(settings.buttonStyle)
+            },
+            LocalDialogShape provides remember(settings.dialogCornerRadiusDp) {
+                dialogShapeFor(settings.dialogCornerRadiusDp)
             }
         ) {
         // Chat tab owns its own header (drawer + model picker); the global bar would double it.
