@@ -15,6 +15,7 @@ class AgentDataStore(private val context: Context) {
         val PROVIDER = stringPreferencesKey("agent_provider")
         val GEMINI_KEY = stringPreferencesKey("gemini_key")
         val ZEN_KEY = stringPreferencesKey("zen_key")
+        val SEARCH_KEY = stringPreferencesKey("search_key")
         val SELECTED_MODEL = stringPreferencesKey("selected_model")
         val SESSION_ID = stringPreferencesKey("agent_session")
     }
@@ -25,6 +26,7 @@ class AgentDataStore(private val context: Context) {
             provider = try { AgentProvider.valueOf(providerStr) } catch (_: Exception) { AgentProvider.OPENCODE_ZEN },
             geminiApiKey = prefs[Keys.GEMINI_KEY] ?: "",
             zenApiKey = prefs[Keys.ZEN_KEY] ?: "",
+            searchApiKey = prefs[Keys.SEARCH_KEY] ?: "",
             // Migrate legacy "model_override" value forward once, then stop reading it.
             selectedModel = prefs[Keys.SELECTED_MODEL]
                 ?: prefs[stringPreferencesKey("model_override")]
@@ -53,6 +55,10 @@ class AgentDataStore(private val context: Context) {
         }
     }
 
+    suspend fun setSearchKey(key: String) {
+        context.agentDataStore.edit { it[Keys.SEARCH_KEY] = key }
+    }
+
     suspend fun setSelectedModel(modelId: String) {
         context.agentDataStore.edit { it[Keys.SELECTED_MODEL] = modelId }
     }
@@ -66,6 +72,7 @@ class AgentDataStore(private val context: Context) {
             it[Keys.PROVIDER] = settings.provider.name
             it[Keys.GEMINI_KEY] = settings.geminiApiKey
             it[Keys.ZEN_KEY] = settings.zenApiKey
+            it[Keys.SEARCH_KEY] = settings.searchApiKey
             it[Keys.SELECTED_MODEL] = settings.selectedModel
             it[Keys.SESSION_ID] = settings.sessionId
         }
@@ -76,6 +83,7 @@ class AgentDataStore(private val context: Context) {
             it.remove(Keys.PROVIDER)
             it.remove(Keys.GEMINI_KEY)
             it.remove(Keys.ZEN_KEY)
+            it.remove(Keys.SEARCH_KEY)
             it.remove(Keys.SELECTED_MODEL)
             it.remove(stringPreferencesKey("model_override"))
             it.remove(Keys.SESSION_ID)

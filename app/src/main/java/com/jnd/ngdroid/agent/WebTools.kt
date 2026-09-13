@@ -3,6 +3,7 @@ package com.jnd.ngdroid.agent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.coroutines.Dispatchers
@@ -98,7 +99,11 @@ fun htmlToText(html: String, maxChars: Int = 4000): String {
     return t.take(maxChars).trim()
 }
 
-class WebSearchTool(private val httpGet: HttpGet = HttpClients.okHttpGet()) : AgentTool {
+class WebSearchTool(
+    private val httpGet: HttpGet = HttpClients.okHttpGet(),
+    /** Saved Brave Search key; blank selects the free DuckDuckGo backend. */
+    private val searchKeyProvider: () -> String = { "" }
+) : AgentTool {
     override val name: String = "web_search"
     override val description: String =
         "Search the web for current/external facts (datasheets, part specs, docs). " +
@@ -111,22 +116,93 @@ class WebSearchTool(private val httpGet: HttpGet = HttpClients.okHttpGet()) : Ag
         val query = argString(argsJson, "query")?.trim().orEmpty()
         if (query.isBlank()) return "ERROR: missing query"
         val count = argInt(argsJson, "count")?.coerceIn(1, 10) ?: 5
-        // Tools run on the caller's dispatcher (main); network must hop to IO.
         return try {
-            val url = "https://lite.duckduckgo.com/lite/?q=" +
-                URLEncoder.encode(query, "UTF-8")
-            val results = parseDuckDuckGoLite(withContext(Dispatchers.IO) { httpGet(url, emptyMap()) }, count)
-            if (results.isEmpty()) return "No results for '$query'."
-            results.mapIndexed { i, r ->
-                buildString {
-                    append("${i + 1}. ${r.title}\n   ${r.url}")
-                    if (r.snippet.isNotBlank()) append("\n   ${r.snippet}")
+            val key = searchKeyProvider().trim()
+            if (key.isNotEmpty()) {
+                try {
+                    formatResults(braveSearch(query, count, key), query)
+                } catch (e: Exception) {
+                    // Bad/over-quota key: degrade to free DDG and say so, instead
+                    // of failing the whole turn on a key problem.
+                    val note = fallbackNote(e)
+                    if (note != null) {
+                        note + formatResults(duckSearch(query, count), query)
+                    } else throw e
                 }
-            }.joinToString("\n").take(2000)
+            } else {
+                formatResults(duckSearch(query, count), query)
+            }
         } catch (e: Exception) {
             "ERROR: ${e.message}"
         }
     }
+
+    private fun formatResults(results: List<WebResult>, query: String): String {
+        if (results.isEmpty()) return "No results for '$query'."
+        return results.mapIndexed { i, r ->
+            buildString {
+                append("${i + 1}. ${r.title}\n   ${r.url}")
+                if (r.snippet.isNotBlank()) append("\n   ${r.snippet}")
+            }
+        }.joinToString("\n").take(2000)
+    }
+
+    /** Keyed backend: Brave Search API. Throws on non-2xx (see HttpClients.okHttpGet). */
+    private suspend fun braveSearch(query: String, count: Int, key: String): List<WebResult> {
+        val url = "https://api.search.brave.com/res/v1/web/search?q=" +
+            URLEncoder.encode(query, "UTF-8") + "&count=$count"
+        // Tools run on the caller's dispatcher (main); network must hop to IO.
+        val body = withContext(Dispatchers.IO) {
+            httpGet(url, mapOf("X-Subscription-Token" to key))
+        }
+        return parseBraveSearch(body, count)
+    }
+
+    /** Free backend: DuckDuckGo lite HTML. */
+    private suspend fun duckSearch(query: String, count: Int): List<WebResult> {
+        val url = "https://lite.duckduckgo.com/lite/?q=" +
+            URLEncoder.encode(query, "UTF-8")
+        // Tools run on the caller's dispatcher (main); network must hop to IO.
+        val body = withContext(Dispatchers.IO) { httpGet(url, emptyMap()) }
+        return parseDuckDuckGoLite(body, count)
+    }
+
+    /**
+     * Note prefix when a keyed search fails for a key/quota reason (worth
+     * degrading to DuckDuckGo); null for real failures that must surface.
+     * Brave rejects bad subscription tokens with HTTP 422, not 401.
+     */
+    private fun fallbackNote(e: Exception): String? {
+        val msg = e.message.orEmpty()
+        return when {
+            "HTTP 401" in msg || "HTTP 403" in msg || "HTTP 422" in msg ->
+                "Note: the saved search key was rejected; used DuckDuckGo instead.\n"
+            "HTTP 429" in msg ->
+                "Note: the search quota is exceeded; used DuckDuckGo instead.\n"
+            else -> null
+        }
+    }
+}
+
+/**
+ * Pure parser for Brave Search API JSON (`web.results[]` with
+ * title/url/description). JVM-testable; network-free.
+ */
+fun parseBraveSearch(json: String, maxResults: Int = 5): List<WebResult> {
+    if (maxResults <= 0) return emptyList()
+    return runCatching {
+        val root = jsonLenient.parseToJsonElement(json).jsonObject
+        val results = root["web"]?.jsonObject?.get("results")?.jsonArray ?: return emptyList()
+        results.take(maxResults).mapNotNull { el ->
+            val obj = el.jsonObject
+            val title = obj["title"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            val url = obj["url"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            if (title.isBlank() || url.isBlank()) return@mapNotNull null
+            if (!url.startsWith("http://") && !url.startsWith("https://")) return@mapNotNull null
+            val snippet = obj["description"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+            WebResult(title, url, snippet)
+        }
+    }.getOrElse { emptyList() }
 }
 
 class FetchUrlTool(private val httpGet: HttpGet = HttpClients.okHttpGet()) : AgentTool {
@@ -142,9 +218,22 @@ class FetchUrlTool(private val httpGet: HttpGet = HttpClients.okHttpGet()) : Age
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
             return "ERROR: only http(s) URLs are supported"
         }
+        // Datasheets are usually PDFs: fail fast with guidance instead of
+        // downloading binary and returning garbage text.
+        val path = url.substringBefore("?").lowercase()
+        if (path.endsWith(".pdf") || path.endsWith(".zip") ||
+            path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+            path.endsWith(".gif") || path.endsWith(".mp4")
+        ) {
+            return "ERROR: that URL is a file download (e.g. PDF), not a readable " +
+                "page — fetch the HTML product/doc page instead."
+        }
         return try {
             val text = htmlToText(withContext(Dispatchers.IO) { httpGet(url, emptyMap()) })
-            if (text.isBlank()) "No readable text at $url." else text
+            if (text.contains('�') && text.length < 200) {
+                "ERROR: the page did not decode as readable text (likely a file " +
+                    "download) — fetch the HTML version instead."
+            } else if (text.isBlank()) "No readable text at $url." else text
         } catch (e: Exception) {
             "ERROR: ${e.message}"
         }

@@ -422,6 +422,14 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Save the optional web-search (Brave) key. Blank = free DuckDuckGo backend. */
+    fun updateSearchKey(key: String) {
+        _settings.value = _settings.value.copy(searchApiKey = key)
+        viewModelScope.launch {
+            try { store.setSearchKey(key) } catch (_: Exception) { }
+        }
+    }
+
     fun updateSessionId(sessionId: String) {
         _settings.value = _settings.value.copy(sessionId = sessionId)
         viewModelScope.launch {
@@ -664,7 +672,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     register(ValidateNetlistTool())
                     register(GenerateNetlistTemplateTool())
                     register(ApplyNetlistTool(bridge))
-                    register(WebSearchTool())
+                    register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
                     register(FetchUrlTool())
                 }
                 val agent = AgentOrchestrator(AgentConfig(maxIterations = 12), provider, registry)

@@ -149,6 +149,58 @@ fun AiAssistantSettingsCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
+            var searchInput by remember(agentSettings.searchApiKey) {
+                mutableStateOf(agentSettings.searchApiKey)
+            }
+            var showSearchKey by remember { mutableStateOf(false) }
+            var searchSaveState by remember { mutableStateOf<SaveState>(SaveState.Idle) }
+            // Debounced autosave, same pattern as the provider key above.
+            LaunchedEffect(searchInput) {
+                val trimmed = searchInput.trim()
+                if (trimmed == agentSettings.searchApiKey.trim()) {
+                    searchSaveState = SaveState.Idle
+                    return@LaunchedEffect
+                }
+                searchSaveState = SaveState.Editing
+                delay(800)
+                assistantViewModel.updateSearchKey(searchInput)
+                searchSaveState = SaveState.Saved
+            }
+            OutlinedTextField(
+                value = searchInput,
+                onValueChange = { searchInput = it },
+                label = { Text("Web search key (optional)") },
+                placeholder = { Text("Brave Search key…") },
+                singleLine = true,
+                visualTransformation = if (showSearchKey) VisualTransformation.None
+                else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    IconButton(onClick = { showSearchKey = !showSearchKey }) {
+                        Icon(
+                            if (showSearchKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showSearchKey) "Hide key" else "Show key"
+                        )
+                    }
+                },
+                supportingText = {
+                    when (searchSaveState) {
+                        SaveState.Idle -> if (agentSettings.searchApiKey.isNotBlank()) {
+                            Text("Key saved — Brave backend active")
+                        }
+                        SaveState.Editing -> Text("Typing…")
+                        SaveState.Saved -> Text("Saved ✓")
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                "Optional Brave Search key (brave.com/search/api). With a key the " +
+                    "assistant searches via Brave; without one it uses free DuckDuckGo.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
             if (provider == AgentProvider.OPENCODE_ZEN) {
                 var session by remember(agentSettings.sessionId) {
                     mutableStateOf(agentSettings.sessionId)
