@@ -12,10 +12,12 @@ import com.jnd.ngdroid.agent.ChatMessage
 import com.jnd.ngdroid.agent.ChatRole
 import com.jnd.ngdroid.agent.GeminiProvider
 import com.jnd.ngdroid.agent.GenerateNetlistTemplateTool
+import com.jnd.ngdroid.agent.FetchUrlTool
 import com.jnd.ngdroid.agent.HttpClients
 import com.jnd.ngdroid.agent.MapToolRegistry
 import com.jnd.ngdroid.agent.SpiceAppBridge
 import com.jnd.ngdroid.agent.ValidateNetlistTool
+import com.jnd.ngdroid.agent.WebSearchTool
 import com.jnd.ngdroid.agent.ZenProvider
 import com.jnd.ngdroid.data.AgentDataStore
 import com.jnd.ngdroid.data.AgentProvider
@@ -662,6 +664,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     register(ValidateNetlistTool())
                     register(GenerateNetlistTemplateTool())
                     register(ApplyNetlistTool(bridge))
+                    register(WebSearchTool())
+                    register(FetchUrlTool())
                 }
                 val agent = AgentOrchestrator(AgentConfig(maxIterations = 12), provider, registry)
                 // Raw provider failures become short friendly sentences (no JSON/URLs).

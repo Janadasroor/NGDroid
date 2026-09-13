@@ -41,7 +41,7 @@ fun stepsByAssistant(messages: List<ChatMsg>): Map<String, List<ChatMsg>> {
     return out
 }
 
-private enum class ToolKind { VALIDATE, APPLY, RUN, GENERATE }
+private enum class ToolKind { VALIDATE, APPLY, RUN, GENERATE, SEARCH }
 
 private fun kindOf(text: String): ToolKind? {
     val s = text.lowercase()
@@ -50,6 +50,7 @@ private fun kindOf(text: String): ToolKind? {
         "apply" in s -> ToolKind.APPLY
         "run" in s || "simulat" in s -> ToolKind.RUN
         "generat" in s || "template" in s -> ToolKind.GENERATE
+        "search" in s || "fetch" in s -> ToolKind.SEARCH
         else -> null
     }
 }
@@ -69,6 +70,7 @@ fun thinkingTitle(status: String?, lastStep: String?): String {
             ToolKind.APPLY -> "Applying…"
             ToolKind.RUN -> "Running…"
             ToolKind.GENERATE -> "Generating…"
+            ToolKind.SEARCH -> "Searching…"
             null -> s.take(80)
         }
     }
@@ -78,6 +80,7 @@ fun thinkingTitle(status: String?, lastStep: String?): String {
             ToolKind.APPLY -> "Applied"
             ToolKind.RUN -> "Ran"
             ToolKind.GENERATE -> "Generated"
+            ToolKind.SEARCH -> "Searched"
             null -> "Thought process"
         }
     }

@@ -3,6 +3,9 @@ package com.jnd.ngdroid.agent
 /** Shared Http POST fun-type for testability: (url, headers, bodyJson) -> responseBodyString */
 typealias HttpPost = (url: String, headers: Map<String, String>, bodyJson: String) -> String
 
+/** Shared Http GET fun-type for testability: (url, headers) -> responseBodyString */
+typealias HttpGet = (url: String, headers: Map<String, String>) -> String
+
 enum class ChatRole {
     SYSTEM,
     USER,
