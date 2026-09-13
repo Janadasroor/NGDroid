@@ -1,15 +1,16 @@
 package com.jnd.ngdroid.ui.editor
 
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.SavedStateHandle
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.jnd.ngdroid.data.NetlistDataStore
 import com.jnd.ngdroid.data.PresetNetlists
 import com.jnd.ngdroid.data.SettingsRepository
 import com.jnd.ngdroid.ui.SimulationViewModel
+import kotlinx.coroutines.runBlocking
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,13 +30,17 @@ class NetlistEditorScreenTest {
 
     @Test
     fun displaysDefaultNetlist() {
+        // Clear any persisted draft so the editor falls back to the default
+        // preset (PresetNetlists.items.first()).
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        runBlocking { NetlistDataStore(context).saveDraft("") }
         val vm = makeViewModel()
         val settingsRepo = SettingsRepository()
         composeTestRule.setContent {
             NetlistEditorScreen(viewModel = vm, settingsRepository = settingsRepo, onNavigateToPlot = {})
         }
 
-        val firstLine = "* RC Low-Pass Filter Transient Analysis"
+        val firstLine = PresetNetlists.items.first().netlist.lines().first()
         composeTestRule.onNodeWithText(firstLine, substring = true).assertExists()
     }
 
@@ -62,12 +67,12 @@ class NetlistEditorScreenTest {
             NetlistEditorScreen(viewModel = vm, settingsRepository = settingsRepo, onNavigateToPlot = {})
         }
 
-        composeTestRule.onNodeWithText("Presets").performClick()
+        composeTestRule.onNodeWithText("Examples").performClick()
 
-        val rlcTitle = PresetNetlists.items[2].title
-        composeTestRule.onNodeWithText(rlcTitle).performClick()
+        val preset = PresetNetlists.items[2]
+        composeTestRule.onNodeWithText(preset.title).performClick()
 
-        val nodes = composeTestRule.onAllNodesWithText("RLC Parallel Resonant Circuit", substring = true).fetchSemanticsNodes()
-        assert(nodes.isNotEmpty())
+        val firstLine = preset.netlist.lines().first()
+        composeTestRule.onNodeWithText(firstLine, substring = true).assertExists()
     }
 }
