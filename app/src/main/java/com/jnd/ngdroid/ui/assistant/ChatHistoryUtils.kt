@@ -15,6 +15,15 @@ fun buildTitle(firstUserText: String, fallback: String = "New chat"): String {
     return if (single.length <= 42) single else single.take(41).trimEnd() + "…"
 }
 
+/**
+ * Normalizes the composer draft on every keystroke: whitespace-only input
+ * (spaces, newlines) collapses to empty so the input bar falls back to its
+ * single-line height and the placeholder returns. Real drafts pass through
+ * untouched, preserving in-progress multi-line text.
+ */
+fun normalizeChatInput(raw: String): String =
+    if (raw.isBlank()) "" else raw
+
 /** Keep messages up to and including [msgId]; unknown id returns the list unchanged. */
 fun truncateAfter(messages: List<ChatMsg>, msgId: String): List<ChatMsg> {
     val idx = messages.indexOfFirst { it.id == msgId }

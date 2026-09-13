@@ -529,7 +529,7 @@ fun AssistantScreen(
                 ) {
                     TextField(
                         value = input,
-                        onValueChange = { input = it },
+                        onValueChange = { input = normalizeChatInput(it) },
                         modifier = Modifier.fillMaxWidth(),
                         placeholder = { Text("Ask about circuits…") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),

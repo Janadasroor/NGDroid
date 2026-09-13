@@ -7,6 +7,7 @@ import com.jnd.ngdroid.ui.assistant.ChatMsg
 import com.jnd.ngdroid.ui.assistant.ChatRoleUi
 import com.jnd.ngdroid.ui.assistant.buildTitle
 import com.jnd.ngdroid.ui.assistant.filterSessions
+import com.jnd.ngdroid.ui.assistant.normalizeChatInput
 import com.jnd.ngdroid.ui.assistant.toStored
 import com.jnd.ngdroid.ui.assistant.toUi
 import com.jnd.ngdroid.ui.assistant.truncateAfter
@@ -86,5 +87,15 @@ class ChatHistoryUtilsTest {
         assertEquals(listOf("2"), filterSessions(sessions, "DIODE").map { it.id })
         assertEquals(2, filterSessions(sessions, "").size)
         assertTrue(filterSessions(sessions, "zzz").isEmpty())
+    }
+
+    @Test
+    fun normalizeChatInputCollapsesBlank() {
+        assertEquals("", normalizeChatInput(""))
+        assertEquals("", normalizeChatInput("   "))
+        assertEquals("", normalizeChatInput("\n"))
+        assertEquals("", normalizeChatInput(" \n \n "))
+        assertEquals("hi", normalizeChatInput("hi"))
+        assertEquals("  hi\nthere  ", normalizeChatInput("  hi\nthere  "))
     }
 }
