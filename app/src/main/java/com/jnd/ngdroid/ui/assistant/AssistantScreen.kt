@@ -436,8 +436,10 @@ fun AssistantScreen(
                             val blocks = remember(msg.text) { extractCodeBlocks(msg.text) }
                             blocks.forEach { block ->
                                 Spacer(Modifier.height(10.dp))
+                                val isNetlist = remember(block) { isNetlistBlock(block) }
                                 CodeBlockCard(
                                     code = block,
+                                    isNetlist = isNetlist,
                                     onCopy = {
                                         copyToClipboard(context, block)
                                         Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
@@ -806,6 +808,7 @@ private fun ThinkingRow(
 @Composable
 private fun CodeBlockCard(
     code: String,
+    isNetlist: Boolean,
     onCopy: () -> Unit,
     onApply: () -> Unit,
     onApplyAndRun: () -> Unit
@@ -830,7 +833,7 @@ private fun CodeBlockCard(
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
-                    "SPICE netlist",
+                    if (isNetlist) "SPICE netlist" else "Code",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.SemiBold,
@@ -866,22 +869,26 @@ private fun CodeBlockCard(
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(
-                    onClick = onApply,
-                    shape = LocalButtonShape.current
-                ) { Text("Apply") }
-                FilledTonalButton(
-                    onClick = onApplyAndRun,
-                    shape = LocalButtonShape.current
-                ) {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text("Apply & Run")
+            // Only validated netlists get Apply/Run: other code stays copy-only
+            // so prose or non-SPICE snippets can't overwrite the editor.
+            if (isNetlist) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onApply,
+                        shape = LocalButtonShape.current
+                    ) { Text("Apply") }
+                    FilledTonalButton(
+                        onClick = onApplyAndRun,
+                        shape = LocalButtonShape.current
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("Apply & Run")
+                    }
                 }
             }
         }

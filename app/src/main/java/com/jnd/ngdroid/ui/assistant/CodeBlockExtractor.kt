@@ -45,3 +45,10 @@ fun extractFirstNetlist(markdown: String): String? {
     }
     return blocks.firstOrNull { it.isNotBlank() }
 }
+
+/**
+ * True when a fenced block validates as a SPICE netlist. Used by the chat UI
+ * to decide whether a block gets Apply/Run actions or is copy-only.
+ */
+fun isNetlistBlock(block: String): Boolean =
+    runCatching { SpiceValidator.validate(block).isValid }.getOrDefault(false)

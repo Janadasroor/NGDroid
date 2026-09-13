@@ -2,7 +2,9 @@ package com.jnd.ngdroid.agent
 
 import com.jnd.ngdroid.ui.assistant.extractCodeBlocks
 import com.jnd.ngdroid.ui.assistant.extractFirstNetlist
+import com.jnd.ngdroid.ui.assistant.isNetlistBlock
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -49,5 +51,14 @@ class CodeBlockExtractorTest {
     fun validRcNetlistDetected() {
         val md = "```spice\n* RC\nV1 in 0 AC 1\nR1 in out 1k\nC1 out 0 100n\n.end\n```"
         assertNotNull(extractFirstNetlist(md))
+    }
+
+    @Test
+    fun isNetlistBlockGatesApplyActions() {
+        assertTrue(isNetlistBlock("* RC\nR1 in out 1k\nC1 out 0 100n\n.end"))
+        assertFalse(isNetlistBlock("print('hello')"))
+        assertFalse(isNetlistBlock("not a netlist at all"))
+        assertFalse(isNetlistBlock(""))
+        assertFalse(isNetlistBlock("   "))
     }
 }
