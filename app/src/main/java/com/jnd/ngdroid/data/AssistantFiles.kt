@@ -66,6 +66,14 @@ class AndroidAssistantFileStore(private val appContext: Context) : AssistantFile
                 val uri = appContext.contentResolver.insert(collection, values) ?: return
                 appContext.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
             } else {
+                // API 26-28: legacy public dir needs WRITE_EXTERNAL_STORAGE.
+                // Internal app-files copy above already succeeded, so skip the
+                // public copy when the grant is missing instead of throwing.
+                val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                    appContext,
+                    android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                if (!granted) return
                 @Suppress("DEPRECATION")
                 val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val outDir = File(downloads, "NGDroid").apply { mkdirs() }

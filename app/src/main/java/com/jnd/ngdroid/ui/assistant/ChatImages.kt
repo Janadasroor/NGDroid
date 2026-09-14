@@ -90,6 +90,25 @@ fun ImageViewerDialog(
     LockOrientationWhileShown()
     val context = LocalContext.current
     val zoom = remember(url) { ImageZoom() }
+    // API 26-28: DownloadManager into public Pictures needs the legacy
+    // runtime grant; queue the tap and run it after the user grants.
+    var pendingSave by remember(url) { mutableStateOf(false) }
+    val storageLauncher = rememberLegacyStorageLauncher {
+        if (pendingSave) {
+            pendingSave = false
+            saveChatImage(context, url)
+        }
+    }
+    fun saveWithPermission() {
+        if (hasLegacyStorageGrant(context)) {
+            saveChatImage(context, url)
+        } else {
+            pendingSave = true
+            storageLauncher.launch(
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
+        }
+    }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -111,7 +130,7 @@ fun ImageViewerDialog(
                         Text("Close", color = Color.White)
                     }
                     Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { saveChatImage(context, url) }) {
+                    TextButton(onClick = { saveWithPermission() }) {
                         Text("Save", color = Color.White)
                     }
                     TextButton(onClick = { openInBrowser(context, url) }) {

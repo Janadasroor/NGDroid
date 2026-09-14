@@ -94,14 +94,16 @@ fun DataScreen(
             pendingDownloadIsReport = false
             if (granted && plot != null) {
                 if (isReport) {
-                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        val uri = exportPlotUseCase.saveReport(
-                            context, plot, state.activeVectors, settings,
-                            repository.netlistText.value,
-                            viewModel.netlistRepository.library.value.firstOrNull {
-                                it.id == viewModel.netlistRepository.activeId.value
-                            }?.title.orEmpty()
-                        )
+                    scope.launch {
+                        val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            exportPlotUseCase.saveReport(
+                                context, plot, state.activeVectors, settings,
+                                repository.netlistText.value,
+                                viewModel.netlistRepository.library.value.firstOrNull {
+                                    it.id == viewModel.netlistRepository.activeId.value
+                                }?.title.orEmpty()
+                            )
+                        }
                         Toast.makeText(
                             context,
                             if (uri != null) "Report saved to Downloads" else "Report failed",
@@ -224,17 +226,19 @@ fun DataScreen(
                     // Lab report: share PDF or save to Downloads (same permission path).
                     OutlinedButton(
                         onClick = {
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                val ok = exportPlotUseCase.shareReport(
-                                    context,
-                                    activePlot,
-                                    state.activeVectors,
-                                    settings,
-                                    repository.netlistText.value,
-                                    viewModel.netlistRepository.library.value.firstOrNull {
-                                        it.id == viewModel.netlistRepository.activeId.value
-                                    }?.title.orEmpty()
-                                )
+                            scope.launch {
+                                val ok = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    exportPlotUseCase.shareReport(
+                                        context,
+                                        activePlot,
+                                        state.activeVectors,
+                                        settings,
+                                        repository.netlistText.value,
+                                        viewModel.netlistRepository.library.value.firstOrNull {
+                                            it.id == viewModel.netlistRepository.activeId.value
+                                        }?.title.orEmpty()
+                                    )
+                                }
                                 if (!ok) {
                                     android.widget.Toast.makeText(
                                         context, "Report needs plot data", android.widget.Toast.LENGTH_SHORT
@@ -266,17 +270,19 @@ fun DataScreen(
                                     return@OutlinedButton
                                 }
                             }
-                            scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                val uri = exportPlotUseCase.saveReport(
-                                    context,
-                                    activePlot,
-                                    state.activeVectors,
-                                    settings,
-                                    repository.netlistText.value,
-                                    viewModel.netlistRepository.library.value.firstOrNull {
-                                        it.id == viewModel.netlistRepository.activeId.value
-                                    }?.title.orEmpty()
-                                )
+                            scope.launch {
+                                val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    exportPlotUseCase.saveReport(
+                                        context,
+                                        activePlot,
+                                        state.activeVectors,
+                                        settings,
+                                        repository.netlistText.value,
+                                        viewModel.netlistRepository.library.value.firstOrNull {
+                                            it.id == viewModel.netlistRepository.activeId.value
+                                        }?.title.orEmpty()
+                                    )
+                                }
                                 android.widget.Toast.makeText(
                                     context,
                                     if (uri != null) "Report saved to Downloads" else "Report failed",

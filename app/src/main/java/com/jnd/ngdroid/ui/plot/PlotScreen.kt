@@ -1,6 +1,10 @@
 package com.jnd.ngdroid.ui.plot
 
 import android.content.res.Configuration
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -42,7 +46,10 @@ import com.jnd.ngdroid.domain.CalculateMeasurementsUseCase
 import com.jnd.ngdroid.domain.ExportPlotUseCase
 import com.jnd.ngdroid.engine.NetMeasurements
 import com.jnd.ngdroid.engine.SimulationRepository
+import com.jnd.ngdroid.ui.plot.TraceColors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -86,6 +93,68 @@ fun PlotScreen(
         cursor1Frac = cursor1Frac,
         cursor2Frac = cursor2Frac,
     )
+
+    // API 26-28: public Downloads saves need WRITE_EXTERNAL_STORAGE.
+    // Queue the long-press save and run it after the user grants.
+    var pendingPngSave by remember { mutableStateOf(false) }
+    val storagePermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { granted ->
+            if (!granted) {
+                pendingPngSave = false
+                Toast.makeText(context, "Storage permission denied", Toast.LENGTH_SHORT).show()
+                return@rememberLauncherForActivityResult
+            }
+            if (!pendingPngSave) return@rememberLauncherForActivityResult
+            pendingPngSave = false
+            val cur = plot
+            if (cur?.scaleVector?.values?.isNullOrEmpty() == true) return@rememberLauncherForActivityResult
+            if (cur == null) return@rememberLauncherForActivityResult
+            scope.launch {
+                val uri = withContext(Dispatchers.IO) {
+                    exportUseCase.savePng(
+                        context, cur, state.activeVectors, settings, currentViewState()
+                    )
+                }
+                Toast.makeText(
+                    context,
+                    if (uri != null) "PNG saved to Downloads" else "PNG export failed",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    )
+
+    fun savePngWithPermission() {
+        val cur = plot ?: return
+        if (cur.scaleVector?.values.isNullOrEmpty()) {
+            Toast.makeText(context, "Nothing to export yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT <= 28) {
+            val granted = androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!granted) {
+                pendingPngSave = true
+                storagePermLauncher.launch(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                return
+            }
+        }
+        scope.launch {
+            val uri = withContext(Dispatchers.IO) {
+                exportUseCase.savePng(
+                    context, cur, state.activeVectors, settings, currentViewState()
+                )
+            }
+            Toast.makeText(
+                context,
+                if (uri != null) "PNG saved to Downloads" else "PNG export failed",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
 
     if (selectedMeasurements != null) {
         NetMeasurementsDialog(
@@ -146,42 +215,35 @@ fun PlotScreen(
                     if (plot != null && plot.scaleVector?.values?.isNotEmpty() == true) {
                         IconButton(
                             onClick = {
-                                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                    val ok = exportUseCase.sharePng(
-                                        context, plot, state.activeVectors, settings, currentViewState()
-                                    )
+                                scope.launch {
+                                    val ok = withContext(Dispatchers.IO) {
+                                        exportUseCase.sharePng(
+                                            context, plot, state.activeVectors, settings, currentViewState()
+                                        )
+                                    }
                                     if (!ok) {
-                                        android.widget.Toast.makeText(
-                                            context, "Nothing to export yet", android.widget.Toast.LENGTH_SHORT
+                                        Toast.makeText(
+                                            context, "Nothing to export yet", Toast.LENGTH_SHORT
                                         ).show()
                                     }
                                 }
                             },
                             modifier = Modifier.combinedClickable(
                                 onClick = {
-                                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                        val ok = exportUseCase.sharePng(
-                                            context, plot, state.activeVectors, settings, currentViewState()
-                                        )
+                                    scope.launch {
+                                        val ok = withContext(Dispatchers.IO) {
+                                            exportUseCase.sharePng(
+                                                context, plot, state.activeVectors, settings, currentViewState()
+                                            )
+                                        }
                                         if (!ok) {
-                                            android.widget.Toast.makeText(
-                                                context, "Nothing to export yet", android.widget.Toast.LENGTH_SHORT
+                                            Toast.makeText(
+                                                context, "Nothing to export yet", Toast.LENGTH_SHORT
                                             ).show()
                                         }
                                     }
                                 },
-                                onLongClick = {
-                                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                                        val uri = exportUseCase.savePng(
-                                            context, plot, state.activeVectors, settings, currentViewState()
-                                        )
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            if (uri != null) "PNG saved to Downloads" else "PNG export failed",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
+                                onLongClick = { savePngWithPermission() }
                             )
                         ) {
                             Icon(

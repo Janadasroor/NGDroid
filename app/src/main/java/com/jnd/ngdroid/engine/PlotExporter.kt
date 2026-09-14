@@ -340,7 +340,10 @@ object PlotExporter {
                     put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/png")
                     put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Download/NGDroid")
                 }
-                val collection = android.provider.MediaStore.Images.Media.getContentUri(
+                // Same Downloads collection as CSV/PDF so the file lands in
+                // Downloads/NGDroid on every API level (Images.Media + a
+                // Download/ path is inconsistent and fails on some OEM builds).
+                val collection = android.provider.MediaStore.Downloads.getContentUri(
                     android.provider.MediaStore.VOLUME_EXTERNAL_PRIMARY
                 )
                 val uri = context.contentResolver.insert(collection, values) ?: return null

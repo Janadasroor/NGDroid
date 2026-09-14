@@ -26,6 +26,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -164,6 +166,17 @@ private fun openLocalFile(context: Context, name: String) {
 @Composable
 fun FileDownloadCard(link: ChatFileLink) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    // API 26-28: DownloadManager into public Downloads needs the legacy
+    // runtime grant; queue the tap and run it after the user grants.
+    var pendingDownload by androidx.compose.runtime.remember(link.url) {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    val storageLauncher = rememberLegacyStorageLauncher {
+        if (pendingDownload) {
+            pendingDownload = false
+            enqueueDownload(context, link.url, link.fileName)
+        }
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
@@ -197,7 +210,16 @@ fun FileDownloadCard(link: ChatFileLink) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = { enqueueDownload(context, link.url, link.fileName) }) {
+            IconButton(onClick = {
+                if (hasLegacyStorageGrant(context)) {
+                    enqueueDownload(context, link.url, link.fileName)
+                } else {
+                    pendingDownload = true
+                    storageLauncher.launch(
+                        android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    )
+                }
+            }) {
                 Icon(Icons.Default.Download, contentDescription = "Download ${link.fileName}")
             }
         }
