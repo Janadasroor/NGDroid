@@ -30,7 +30,9 @@ class AnthropicProvider(
     private val apiKey: String,
     private val model: String = "claude-sonnet-4-5",
     /** Override for Anthropic-compatible sibling gateways (OpenCode Go /messages). */
-    private val baseUrl: String = ANTHROPIC_BASE
+    private val baseUrl: String = ANTHROPIC_BASE,
+    /** SSE transport; null = non-streaming chat() with a single partial. */
+    private val streamHttp: HttpStream? = null
 ) : LlmProvider {
 
     override val id: String = "anthropic"
@@ -66,6 +68,67 @@ class AnthropicProvider(
         }
     }
 
+    override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse =
+        withContext(Dispatchers.IO) {
+            val stream = streamHttp ?: return@withContext super.streamChat(req, onPartial)
+            val url = "$baseUrl/messages"
+            val body = buildRequestJson(
+                model, req.systemPrompt, req.messages, req.tools,
+                req.temperature, req.maxTokens, stream = true
+            )
+            val text = StringBuilder()
+            val ids = mutableMapOf<Int, String>()
+            val names = mutableMapOf<Int, String>()
+            val inputs = mutableMapOf<Int, StringBuilder>()
+            stream(url, authHeaders(apiKey), body) { ev ->
+                val root = runCatching { json.parseToJsonElement(ev.data).jsonObject }
+                    .getOrElse { return@stream }
+                if (root["type"]?.jsonPrimitive?.contentOrNull == "error") {
+                    throw IllegalStateException(
+                        root["error"]?.jsonObject
+                            ?.get("message")?.jsonPrimitive?.contentOrNull ?: "stream error"
+                    )
+                }
+                val index = root["index"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+                when (ev.event) {
+                    "content_block_start" -> {
+                        root["content_block"]?.jsonObject?.let { block ->
+                            if (block["type"]?.jsonPrimitive?.contentOrNull == "tool_use") {
+                                block["id"]?.jsonPrimitive?.contentOrNull?.let {
+                                    if (it.isNotEmpty()) ids[index] = it
+                                }
+                                block["name"]?.jsonPrimitive?.contentOrNull?.let {
+                                    if (it.isNotEmpty()) names[index] = it
+                                }
+                            }
+                        }
+                    }
+                    "content_block_delta" -> {
+                        root["delta"]?.jsonObject?.let { delta ->
+                            when (delta["type"]?.jsonPrimitive?.contentOrNull) {
+                                "text_delta" -> delta["text"]?.jsonPrimitive?.contentOrNull?.let {
+                                    if (it.isNotEmpty()) {
+                                        text.append(it)
+                                        onPartial(text.toString())
+                                    }
+                                }
+                                "input_json_delta" ->
+                                    delta["partial_json"]?.jsonPrimitive?.contentOrNull?.let {
+                                        inputs.getOrPut(index) { StringBuilder() }.append(it)
+                                    }
+                            }
+                        }
+                    }
+                }
+            }
+            LlmResponse(
+                text.toString(),
+                (ids.keys + names.keys + inputs.keys).sorted().map {
+                    ToolCall(ids[it].orEmpty(), names[it].orEmpty(), inputs[it]?.toString() ?: "{}")
+                }
+            )
+        }
+
     /** Pure, testable `messages` request builder (vision-capable). */
     fun buildRequestJson(
         model: String,
@@ -73,7 +136,8 @@ class AnthropicProvider(
         messages: List<ChatMessage>,
         tools: List<LlmTool>,
         temp: Double,
-        maxTokens: Int
+        maxTokens: Int,
+        stream: Boolean = false
     ): String {
         val systemTexts = mutableListOf<String>()
         if (system.isNotBlank()) systemTexts.add(system)
@@ -109,6 +173,7 @@ class AnthropicProvider(
                 })
             }
             put("temperature", JsonPrimitive(temp))
+            if (stream) put("stream", JsonPrimitive(true))
         }.toString()
     }
 

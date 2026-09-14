@@ -34,7 +34,9 @@ open class OpenAiProvider(
     private val extraHeaders: Map<String, String> = emptyMap(),
     override val id: String = "openai",
     override val displayName: String = "OpenAI",
-    override val defaultModel: String = "gpt-4.1-mini"
+    override val defaultModel: String = "gpt-4.1-mini",
+    /** SSE transport; null = non-streaming chat() with a single partial. */
+    private val streamHttp: HttpStream? = null
 ) : LlmProvider {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -67,6 +69,23 @@ open class OpenAiProvider(
         }
     }
 
+    override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse =
+        withContext(Dispatchers.IO) {
+            val stream = streamHttp ?: return@withContext super.streamChat(req, onPartial)
+            val url = "$baseUrl/chat/completions"
+            val headers = mapOf(
+                "Authorization" to "Bearer $apiKey",
+                "Content-Type" to "application/json"
+            ) + extraHeaders
+            val body = buildRequestJson(
+                model, req.systemPrompt, req.messages, req.tools,
+                req.temperature, req.maxTokens, stream = true
+            )
+            val acc = ChatStreamAccumulator(onPartial)
+            stream(url, headers, body) { acc.accept(it) }
+            acc.response()
+        }
+
     /** Pure, testable `chat/completions` request builder (vision-capable). */
     fun buildRequestJson(
         model: String,
@@ -74,7 +93,8 @@ open class OpenAiProvider(
         messages: List<ChatMessage>,
         tools: List<LlmTool>,
         temp: Double,
-        maxTokens: Int
+        maxTokens: Int,
+        stream: Boolean = false
     ): String {
         val msgs = mutableListOf<JsonObject>()
         if (system.isNotBlank()) {
@@ -95,6 +115,7 @@ open class OpenAiProvider(
             }
             put("temperature", JsonPrimitive(temp))
             put("max_tokens", JsonPrimitive(maxTokens))
+            if (stream) put("stream", JsonPrimitive(true))
         }
         return root.toString()
     }

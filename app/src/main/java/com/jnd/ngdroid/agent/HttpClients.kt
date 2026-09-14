@@ -115,4 +115,37 @@ object HttpClients {
             body
         }
     }
+
+    /** Default SSE-backed HttpStream (no read timeout: streams stay open). */
+    fun okHttpStream(): HttpStream = okHttpStream(client)
+
+    fun okHttpStream(client: OkHttpClient): HttpStream = { url, headers, bodyJson, onEvent ->
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+        val builder = Request.Builder()
+            .url(url)
+            .header("Accept", "text/event-stream")
+            .post(bodyJson.toRequestBody(mediaType))
+        for ((k, v) in headers) builder.header(k, v)
+        val streamClient = client.newBuilder().readTimeout(0, TimeUnit.SECONDS).build()
+        streamClient.newCall(builder.build()).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                val peek = runCatching { resp.body?.string().orEmpty().take(500) }.getOrDefault("")
+                throw IllegalStateException("HTTP ${resp.code} for $url: $peek")
+            }
+            val source = resp.body?.source()
+                ?: throw IllegalStateException("Empty stream for $url")
+            // Frame-level parsing only; providers interpret event/data.
+            val buf = StringBuilder()
+            while (!source.exhausted()) {
+                val line = source.readUtf8Line() ?: break
+                if (line.isBlank()) {
+                    parseSseBlock(buf.toString())?.let(onEvent)
+                    buf.clear()
+                } else {
+                    buf.append(line).append('\n')
+                }
+            }
+            parseSseBlock(buf.toString())?.let(onEvent)
+        }
+    }
 }

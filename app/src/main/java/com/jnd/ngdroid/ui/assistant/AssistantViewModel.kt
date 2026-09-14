@@ -248,6 +248,30 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         schedulePersistFor(id)
     }
 
+    /**
+     * Creates or refreshes the live streaming bubble; returns its id.
+     * New lists are built (never mutated) so background readers stay safe.
+     */
+    private fun setLiveBubbleText(id: String, liveId: String?, text: String): String {
+        val rt = runtime(id)
+        if (liveId == null) {
+            val msg = ChatMsg(role = ChatRoleUi.ASSISTANT, text = text)
+            rt.messages = rt.messages + msg
+            if (id == _activeChatId.value) _messages.value = rt.messages
+            schedulePersistFor(id)
+            return msg.id
+        }
+        rt.messages = rt.messages.map {
+            if (it.id == liveId && it.role == ChatRoleUi.ASSISTANT) it.copy(text = text) else it
+        }
+        return liveId
+    }
+
+    /** Mirrors a chat's transcript into the visible list when it is active. */
+    private fun mirrorMessages(id: String) {
+        if (id == _activeChatId.value) _messages.value = runtime(id).messages
+    }
+
     private fun setChatThinking(id: String, thinking: Boolean) {
         val rt = runtime(id)
         rt.thinking = thinking
@@ -607,21 +631,35 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     private fun buildProvider(s: AgentSettings, key: String, model: String) = when (s.provider) {
-        AgentProvider.GEMINI -> GeminiProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
-        AgentProvider.OPENAI -> OpenAiProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
-        AgentProvider.ANTHROPIC -> AnthropicProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
+        AgentProvider.GEMINI -> GeminiProvider(
+            HttpClients.okHttpPost(), apiKey = key, model = model,
+            streamHttp = HttpClients.okHttpStream()
+        )
+        AgentProvider.OPENAI -> OpenAiProvider(
+            HttpClients.okHttpPost(), apiKey = key, model = model,
+            streamHttp = HttpClients.okHttpStream()
+        )
+        AgentProvider.ANTHROPIC -> AnthropicProvider(
+            HttpClients.okHttpPost(), apiKey = key, model = model,
+            streamHttp = HttpClients.okHttpStream()
+        )
         AgentProvider.OPENCODE_GO -> GoProvider(
             HttpClients.okHttpPost(),
             apiKey = key,
             model = model,
-            sessionId = s.sessionId.ifBlank { ZenProvider.DEFAULT_SESSION_ID }
+            sessionId = s.sessionId.ifBlank { ZenProvider.DEFAULT_SESSION_ID },
+            streamHttp = HttpClients.okHttpStream()
         )
-        AgentProvider.OPENROUTER -> OpenRouterProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
+        AgentProvider.OPENROUTER -> OpenRouterProvider(
+            HttpClients.okHttpPost(), apiKey = key, model = model,
+            streamHttp = HttpClients.okHttpStream()
+        )
         AgentProvider.OPENCODE_ZEN -> ZenProvider(
             HttpClients.okHttpPost(),
             apiKey = key,
             model = model,
-            sessionId = s.sessionId.ifBlank { ZenProvider.DEFAULT_SESSION_ID }
+            sessionId = s.sessionId.ifBlank { ZenProvider.DEFAULT_SESSION_ID },
+            streamHttp = HttpClients.okHttpStream()
         )
     }
 
@@ -851,6 +889,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             } catch (_: Exception) {
                 emptyList()
             }
+            // Live streaming bubble id (declared outside try so the catch
+            // path can finalize the same bubble instead of doubling it).
+            var liveId: String? = null
             try {
                 val provider = buildProvider(s, key, model)
                 val bridge = object : SpiceAppBridge {
@@ -896,11 +937,27 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 // Pending tool args let observations embed their source URL/counts
                 // (fetch reads, search totals) for the thinking summary.
                 val pendingArgs = ArrayDeque<Pair<String, String>>()
+                // Live streaming bubble: created on the first text delta, then
+                // refreshed (UI mirrored at ~8Hz so markdown keeps up).
+                var lastPushMs = 0L
                 val answer = agent.run(
                     enriched,
                     rt.history.toList(),
                     { event ->
                     when (event) {
+                        is AgentEvent.Partial -> {
+                            val now = android.os.SystemClock.elapsedRealtime()
+                            if (liveId == null) {
+                                liveId = setLiveBubbleText(id, null, event.text)
+                                lastPushMs = now
+                            } else {
+                                setLiveBubbleText(id, liveId, event.text)
+                                if (now - lastPushMs >= 120) {
+                                    mirrorMessages(id)
+                                    lastPushMs = now
+                                }
+                            }
+                        }
                         is AgentEvent.ToolCallEvent -> {
                             pendingArgs.add(event.name to event.argsJson)
                             val label = toolCallLabel(event.name, event.argsJson)
@@ -926,9 +983,23 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 )
                 rt.history.add(ChatMessage(ChatRole.USER, enriched))
                 rt.history.add(ChatMessage(ChatRole.ASSISTANT, answer))
-                appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = answer.ifBlank { "(empty response)" }))
+                // The live bubble (if any) becomes the final answer so the
+                // turn never renders twice; otherwise append as before.
+                val finalText = answer.ifBlank { "(empty response)" }
+                if (liveId != null) {
+                    setLiveBubbleText(id, liveId, finalText)
+                    mirrorMessages(id)
+                } else {
+                    appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = finalText))
+                }
             } catch (e: Exception) {
-                appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = AgentErrors.format(e.message, model)))
+                val friendly = AgentErrors.format(e.message, model)
+                if (liveId != null) {
+                    setLiveBubbleText(id, liveId, friendly)
+                    mirrorMessages(id)
+                } else {
+                    appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = friendly))
+                }
             } finally {
                 rt.job = null
                 setChatThinking(id, false)

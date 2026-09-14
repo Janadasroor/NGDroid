@@ -35,7 +35,9 @@ class ZenProvider(
     private val model: String = "big-pickle",
     private val sessionId: String? = DEFAULT_SESSION_ID,
     /** Override for sibling gateways (OpenCode Go shares this protocol). */
-    private val baseUrl: String = ZEN_BASE
+    private val baseUrl: String = ZEN_BASE,
+    /** SSE transport; null = non-streaming chat() with a single partial. */
+    private val streamHttp: HttpStream? = null
 ) : LlmProvider {
 
     override val id: String = "opencode-zen"
@@ -87,6 +89,106 @@ class ZenProvider(
         }
     }
 
+    override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse =
+        withContext(Dispatchers.IO) {
+            val stream = streamHttp ?: return@withContext super.streamChat(req, onPartial)
+            val requested = normalizeModelId(model)
+            val bearer = apiKey.ifBlank { PUBLIC_BEARER }
+            val headers = mutableMapOf(
+                "Authorization" to "Bearer $bearer",
+                "Content-Type" to "application/json"
+            )
+            if (!sessionId.isNullOrBlank()) {
+                headers["x-opencode-session"] = sessionId
+            }
+            if (isResponsesOnlyModel(requested)) {
+                val url = "$baseUrl/responses"
+                val body = buildResponsesJson(
+                    requested, req.systemPrompt, req.messages, req.tools,
+                    req.temperature, req.maxTokens, stream = true
+                )
+                streamResponses(url, headers, body, onPartial)
+            } else {
+                val url = "$baseUrl/chat/completions"
+                val body = buildRequestJson(
+                    requested, req.systemPrompt, req.messages, req.tools,
+                    req.temperature, req.maxTokens, stream = true
+                )
+                val acc = ChatStreamAccumulator(onPartial)
+                stream(url, headers, body) { acc.accept(it) }
+                acc.response()
+            }
+        }
+
+    /**
+     * Streams a `/responses` turn: `output_text.delta` fragments for live
+     * text, `output_item.added` + `function_call_arguments.delta` for tool
+     * calls. Throws on failure events so the orchestrator formats them.
+     */
+    private fun streamResponses(
+        url: String,
+        headers: Map<String, String>,
+        body: String,
+        onPartial: (String) -> Unit
+    ): LlmResponse {
+        val json = Json { ignoreUnknownKeys = true }
+        val text = StringBuilder()
+        val ids = mutableMapOf<Int, String>()
+        val names = mutableMapOf<Int, String>()
+        val args = mutableMapOf<Int, StringBuilder>()
+        val stream = streamHttp!!
+        stream(url, headers, body) { ev ->
+            if (ev.event == "error") {
+                val msg = runCatching { json.parseToJsonElement(ev.data).jsonObject }
+                    .getOrNull()?.get("message")?.jsonPrimitive?.contentOrNull
+                    ?: "stream error"
+                throw IllegalStateException(msg)
+            }
+            val root = runCatching { json.parseToJsonElement(ev.data).jsonObject }
+                .getOrElse { return@stream }
+            if (root["type"]?.jsonPrimitive?.contentOrNull == "error") {
+                val msg = root["error"]?.jsonObject
+                    ?.get("message")?.jsonPrimitive?.contentOrNull ?: "stream error"
+                throw IllegalStateException(msg)
+            }
+            val index = root["output_index"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+            when (ev.event) {
+                "response.output_text.delta" -> {
+                    root["delta"]?.jsonPrimitive?.contentOrNull?.let {
+                        if (it.isNotEmpty()) {
+                            text.append(it)
+                            onPartial(text.toString())
+                        }
+                    }
+                }
+                "response.output_item.added" -> {
+                    root["item"]?.jsonObject?.let { item ->
+                        if (item["type"]?.jsonPrimitive?.contentOrNull == "function_call") {
+                            (item["call_id"]?.jsonPrimitive?.contentOrNull
+                                ?: item["id"]?.jsonPrimitive?.contentOrNull)?.let {
+                                if (it.isNotEmpty()) ids[index] = it
+                            }
+                            item["name"]?.jsonPrimitive?.contentOrNull?.let {
+                                if (it.isNotEmpty()) names[index] = it
+                            }
+                        }
+                    }
+                }
+                "response.function_call_arguments.delta" -> {
+                    root["delta"]?.jsonPrimitive?.contentOrNull?.let {
+                        args.getOrPut(index) { StringBuilder() }.append(it)
+                    }
+                }
+            }
+        }
+        return LlmResponse(
+            text.toString(),
+            (ids.keys + names.keys + args.keys).sorted().map {
+                ToolCall(ids[it].orEmpty(), names[it].orEmpty(), args[it]?.toString() ?: "{}")
+            }
+        )
+    }
+
     /** Pure, testable OpenAI-compatible chat/completions request builder. */
     fun buildRequestJson(
         model: String,
@@ -94,7 +196,8 @@ class ZenProvider(
         messages: List<ChatMessage>,
         tools: List<LlmTool>,
         temp: Double,
-        maxTokens: Int
+        maxTokens: Int,
+        stream: Boolean = false
     ): String {
         val msgs = mutableListOf<JsonObject>()
         if (system.isNotBlank()) {
@@ -115,6 +218,7 @@ class ZenProvider(
             }
             put("temperature", JsonPrimitive(temp))
             put("max_tokens", JsonPrimitive(maxTokens))
+            if (stream) put("stream", JsonPrimitive(true))
         }
         return root.toString()
     }
@@ -130,7 +234,8 @@ class ZenProvider(
         messages: List<ChatMessage>,
         tools: List<LlmTool>,
         temp: Double,
-        maxTokens: Int
+        maxTokens: Int,
+        stream: Boolean = false
     ): String {
         val input = mutableListOf<JsonObject>()
         if (system.isNotBlank()) {
@@ -160,6 +265,7 @@ class ZenProvider(
             }
             put("temperature", JsonPrimitive(temp))
             put("max_output_tokens", JsonPrimitive(maxTokens))
+            if (stream) put("stream", JsonPrimitive(true))
         }
         return root.toString()
     }

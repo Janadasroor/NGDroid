@@ -13,11 +13,13 @@ package com.jnd.ngdroid.agent
 class OpenRouterProvider(
     http: HttpPost,
     apiKey: String,
-    model: String = "openrouter/free"
+    model: String = "openrouter/free",
+    streamHttp: HttpStream? = null
 ) : OpenAiProvider(
     http = http,
     apiKey = apiKey,
     model = model,
+    streamHttp = streamHttp,
     baseUrl = OPENROUTER_BASE,
     extraHeaders = mapOf("X-Title" to "NGDroid"),
     id = "openrouter",

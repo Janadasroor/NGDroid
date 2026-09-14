@@ -105,6 +105,16 @@ class StubGuardTest {
     }
 
     @Test
+    fun nonStreamingProviderStillEmitsPartial() = runTest {
+        val provider = ScriptedProvider(listOf(LlmResponse("Hello there")))
+        val agent = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, registry())
+        val partials = mutableListOf<String>()
+        val out = agent.run("hi?", onEvent = { if (it is AgentEvent.Partial) partials.add(it.text) })
+        assertEquals("Hello there", out)
+        assertEquals(listOf("Hello there"), partials)
+    }
+
+    @Test
     fun stubWithNoToolsHasNoRetry() = runTest {
         val provider = ScriptedProvider(
             listOf(LlmResponse("Something is coming up, I promise."))

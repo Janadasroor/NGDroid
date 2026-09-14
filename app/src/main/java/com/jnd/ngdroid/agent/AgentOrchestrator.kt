@@ -91,6 +91,8 @@ const val STUB_RETRY_NUDGE: String =
 
 sealed interface AgentEvent {
     data class Message(val text: String) : AgentEvent
+    /** Live streamed text (accumulated so far) from the current provider call. */
+    data class Partial(val text: String) : AgentEvent
     data class ToolCallEvent(val name: String, val argsJson: String) : AgentEvent
     data class Observation(val toolName: String, val output: String) : AgentEvent
     data class Error(val message: String) : AgentEvent
@@ -126,6 +128,7 @@ class AgentOrchestrator(
         var iterations = 0
         var stubRetries = 0
         var contentToolUsed = false
+        val forwardPartial: (String) -> Unit = { onEvent(AgentEvent.Partial(it)) }
 
         while (iterations < config.maxIterations + stubRetries) {
             iterations++
@@ -135,7 +138,7 @@ class AgentOrchestrator(
                 tools = llmTools
             )
             val resp: LlmResponse = try {
-                provider.chat(req)
+                provider.streamChat(req, forwardPartial)
             } catch (e: Exception) {
                 // Vision fallback: a text-only model rejecting image_url/input_image
                 // should still answer from the metadata instead of hard-failing.
@@ -147,12 +150,13 @@ class AgentOrchestrator(
                         }
                     }
                     try {
-                        provider.chat(
+                        provider.streamChat(
                             LlmRequest(
                                 systemPrompt = systemPrompt,
                                 messages = conversation.toList(),
                                 tools = llmTools
-                            )
+                            ),
+                            forwardPartial
                         )
                     } catch (e2: Exception) {
                         onEvent(AgentEvent.Error("Provider error: ${e2.message}"))
@@ -223,7 +227,7 @@ class AgentOrchestrator(
                 messages = conversation.toList(),
                 tools = emptyList()
             )
-            val finalResp = provider.chat(finalReq)
+            val finalResp = provider.streamChat(finalReq, forwardPartial)
             val text = finalResp.text.ifBlank { lastText }
             if (text.isNotBlank()) onEvent(AgentEvent.Message(text))
             text.ifBlank { "Stopped after ${config.maxIterations} iterations without a final answer." }

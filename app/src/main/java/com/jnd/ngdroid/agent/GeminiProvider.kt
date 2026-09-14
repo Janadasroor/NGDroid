@@ -17,7 +17,9 @@ import okhttp3.Request
 class GeminiProvider(
     private val http: HttpPost,
     private val apiKey: String,
-    private val model: String = "gemini-2.5-flash"
+    private val model: String = "gemini-2.5-flash",
+    /** SSE transport; null = non-streaming chat() with a single partial. */
+    private val streamHttp: HttpStream? = null
 ) : LlmProvider {
 
     override val id: String = "gemini"
@@ -84,6 +86,39 @@ class GeminiProvider(
         }
         return root.toString()
     }
+
+    /**
+     * Streams `:streamGenerateContent` SSE chunks, accumulating part texts
+     * live. (Tool parity with chat(): this provider runs tool-less, so only
+     * text streams — functionCall parts are ignored like the sync path.)
+     */
+    override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse =
+        withContext(Dispatchers.IO) {
+            val stream = streamHttp ?: return@withContext super.streamChat(req, onPartial)
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse"
+            val body = buildRequestJson(req.systemPrompt, req.messages, req.temperature, req.maxTokens)
+            val text = StringBuilder()
+            stream(url, mapOf("x-goog-api-key" to apiKey, "Content-Type" to "application/json"), body) { ev ->
+                val root = runCatching { json.parseToJsonElement(ev.data).jsonObject }
+                    .getOrElse { return@stream }
+                root["error"]?.jsonObject?.let { err ->
+                    throw IllegalStateException(
+                        err["message"]?.jsonPrimitive?.contentOrNull ?: "stream error"
+                    )
+                }
+                root["candidates"]?.jsonArray?.firstOrNull()
+                    ?.jsonObject?.get("content")?.jsonObject
+                    ?.get("parts")?.jsonArray?.forEach { part ->
+                        (part.jsonObject["text"] as? JsonPrimitive)?.contentOrNull?.let {
+                            if (it.isNotEmpty()) {
+                                text.append(it)
+                                onPartial(text.toString())
+                            }
+                        }
+                    }
+            }
+            LlmResponse(text.toString(), emptyList())
+        }
 
     fun parseChatResponse(bodyJson: String): LlmResponse {
         val root = json.parseToJsonElement(bodyJson).jsonObject

@@ -19,7 +19,9 @@ class GoProvider(
     private val http: HttpPost,
     private val apiKey: String,
     private val model: String = "kimi-k3",
-    private val sessionId: String? = ZenProvider.DEFAULT_SESSION_ID
+    private val sessionId: String? = ZenProvider.DEFAULT_SESSION_ID,
+    /** SSE transport; null = non-streaming chat() with a single partial. */
+    private val streamHttp: HttpStream? = null
 ) : LlmProvider {
 
     override val id: String = "opencode-go"
@@ -35,6 +37,17 @@ class GoProvider(
             ZenProvider(http, apiKey, requested, sessionId, GO_BASE).chat(req)
         }
     }
+
+    override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse =
+        withContext(Dispatchers.IO) {
+            val stream = streamHttp ?: return@withContext super.streamChat(req, onPartial)
+            val requested = ZenProvider.normalizeModelId(model)
+            if (isMessagesModel(requested)) {
+                AnthropicProvider(http, apiKey, requested, GO_BASE, stream).streamChat(req, onPartial)
+            } else {
+                ZenProvider(http, apiKey, requested, sessionId, GO_BASE, stream).streamChat(req, onPartial)
+            }
+        }
 
     override suspend fun listModels(apiKey: String): List<String> =
         ZenProvider(http, apiKey, "", sessionId, GO_BASE).listModels(apiKey)

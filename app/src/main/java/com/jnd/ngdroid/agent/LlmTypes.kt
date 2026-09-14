@@ -6,6 +6,17 @@ typealias HttpPost = (url: String, headers: Map<String, String>, bodyJson: Strin
 /** Shared Http GET fun-type for testability: (url, headers) -> responseBodyString */
 typealias HttpGet = (url: String, headers: Map<String, String>) -> String
 
+/**
+ * Shared Http SSE-stream fun-type for testability:
+ * (url, headers, bodyJson, onEvent) -> Unit. Throws like [HttpPost].
+ */
+typealias HttpStream = (
+    url: String,
+    headers: Map<String, String>,
+    bodyJson: String,
+    onEvent: (SseEvent) -> Unit
+) -> Unit
+
 enum class ChatRole {
     SYSTEM,
     USER,
@@ -59,6 +70,17 @@ interface LlmProvider {
     val defaultModel: String
     suspend fun chat(req: LlmRequest): LlmResponse
     suspend fun listModels(apiKey: String): List<String>
+
+    /**
+     * Streaming chat: calls [onPartial] with the accumulated text as deltas
+     * arrive, returns the full response. Default falls back to [chat] so
+     * providers (and test fakes) without SSE support still emit one partial.
+     */
+    suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse {
+        val full = chat(req)
+        if (full.text.isNotEmpty()) onPartial(full.text)
+        return full
+    }
 }
 
 /** True when a provider failure looks like a vision rejection. Pure. */
