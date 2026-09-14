@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -65,7 +66,10 @@ fun AiAssistantSettingsCard(
     val savedKey = when (provider) {
         AgentProvider.GEMINI -> agentSettings.geminiApiKey
         AgentProvider.OPENAI -> agentSettings.openaiApiKey
+        AgentProvider.ANTHROPIC -> agentSettings.anthropicApiKey
         AgentProvider.OPENCODE_ZEN -> agentSettings.zenApiKey
+        AgentProvider.OPENCODE_GO -> agentSettings.goApiKey
+        AgentProvider.OPENROUTER -> agentSettings.openRouterApiKey
     }
 
     var keyInput by remember(provider, savedKey) { mutableStateOf(savedKey) }
@@ -109,7 +113,9 @@ fun AiAssistantSettingsCard(
 
             Text("Provider", style = MaterialTheme.typography.bodyMedium)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 AgentProvider.entries.forEach { entry ->
@@ -158,9 +164,18 @@ fun AiAssistantSettingsCard(
                     AgentProvider.OPENAI ->
                         "Get a key from platform.openai.com. The app calls " +
                             "api.openai.com/v1 directly — listing is free, chat needs credits."
+                    AgentProvider.ANTHROPIC ->
+                        "Get a key from console.anthropic.com. The app calls " +
+                            "api.anthropic.com/v1 directly — listing is free, chat needs credits."
                     AgentProvider.OPENCODE_ZEN ->
                         "Get a key from opencode.ai. The app calls " +
                             "opencode.ai/zen/v1 directly."
+                    AgentProvider.OPENCODE_GO ->
+                        "Subscribe to Go at opencode.ai ($10/mo) and paste the key. " +
+                            "The app calls opencode.ai/zen/go/v1 directly."
+                    AgentProvider.OPENROUTER ->
+                        "Get a key at openrouter.ai/keys. One key serves 400+ models — " +
+                            ":free variants cost nothing."
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant

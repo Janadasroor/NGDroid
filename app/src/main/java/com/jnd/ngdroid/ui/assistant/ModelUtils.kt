@@ -36,19 +36,31 @@ enum class ModelTierFilter { ALL, FREE, KEYED }
 
 /**
  * Short family label derived from the model id (`muse-spark-*` → Spark,
- * `gpt-*` → GPT, `grok-*` → Grok, `gemini-*` → Gemini, `nemotron-*` → Nemotron…).
+ * `gpt-*` → GPT, `grok-*` → Grok, `gemini-*` → Gemini, `claude-*` → Claude,
+ * `nemotron-*` → Nemotron…).
  * Falls back to the vendor prefix before `-`, else "Other". Pure.
  */
 fun modelFamily(id: String): String {
-    val low = id.trim().lowercase()
+    // OpenRouter ids look like `author/slug:free` — classify by the slug.
+    var low = id.trim().lowercase().removeSuffix(":free")
+    if (low.isEmpty()) return "Other"
+    if ("/" in low) low = low.substringAfterLast("/")
     if (low.isEmpty()) return "Other"
     if (low.startsWith("muse-spark-")) return "Spark"
+    if (low.startsWith("kimi-")) return "Kimi"
+    if (low.startsWith("glm-")) return "GLM"
+    if (low.startsWith("qwen")) return "Qwen"
+    if (low.startsWith("minimax-")) return "MiniMax"
+    if (low.startsWith("longcat-")) return "LongCat"
+    if (low.startsWith("claude-")) return "Claude"
     if (low.startsWith("gpt-")) return "GPT"
     if (low.startsWith("grok-")) return "Grok"
     if (low.startsWith("gemini-")) return "Gemini"
     if (low.startsWith("nemotron-")) return "Nemotron"
     if (low.startsWith("deepseek-")) return "DeepSeek"
     if (low.startsWith("ling-")) return "Ling"
+    if (low.startsWith("llama")) return "Llama"
+    if (low.startsWith("mistral")) return "Mistral"
     if (low.startsWith("mimo-")) return "MiMo"
     val head = low.substringBefore("-").substringBefore("/").trim()
     if (head.isEmpty()) return "Other"

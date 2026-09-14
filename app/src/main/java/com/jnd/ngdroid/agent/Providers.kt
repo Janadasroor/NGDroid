@@ -3,14 +3,18 @@ package com.jnd.ngdroid.agent
 enum class ProviderId {
     GEMINI,
     OPENAI,
-    OPENCODE_ZEN
+    ANTHROPIC,
+    OPENCODE_ZEN,
+    OPENCODE_GO,
+    OPENROUTER
 }
 
 /**
  * Provider configuration (cloud-direct only).
  *
  * No baseUrl: providers always hit their cloud endpoints
- * (Gemini, OpenAI -> api.openai.com/v1, Zen -> https://opencode.ai/zen/v1).
+ * (Gemini, OpenAI -> api.openai.com/v1, Anthropic -> api.anthropic.com/v1,
+ * Zen -> https://opencode.ai/zen/v1).
  * Provide the user's own API key. `model` overrides the provider default.
  * `sessionId` overrides the Zen `x-opencode-session` header value;
  * null = provider default, blank = omit the header.

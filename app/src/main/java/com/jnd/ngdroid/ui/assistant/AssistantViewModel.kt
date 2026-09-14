@@ -17,7 +17,10 @@ import com.jnd.ngdroid.agent.DownloadFileTool
 import com.jnd.ngdroid.agent.FetchUrlTool
 import com.jnd.ngdroid.agent.ImageSearchTool
 import com.jnd.ngdroid.agent.HttpClients
+import com.jnd.ngdroid.agent.AnthropicProvider
+import com.jnd.ngdroid.agent.GoProvider
 import com.jnd.ngdroid.agent.MapToolRegistry
+import com.jnd.ngdroid.agent.OpenRouterProvider
 import com.jnd.ngdroid.agent.OpenAiProvider
 import com.jnd.ngdroid.agent.ReadFileTool
 import com.jnd.ngdroid.agent.ReadSkillTool
@@ -430,7 +433,10 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _settings.value = when (provider) {
             AgentProvider.GEMINI -> _settings.value.copy(geminiApiKey = key)
             AgentProvider.OPENAI -> _settings.value.copy(openaiApiKey = key)
+            AgentProvider.ANTHROPIC -> _settings.value.copy(anthropicApiKey = key)
             AgentProvider.OPENCODE_ZEN -> _settings.value.copy(zenApiKey = key)
+            AgentProvider.OPENCODE_GO -> _settings.value.copy(goApiKey = key)
+            AgentProvider.OPENROUTER -> _settings.value.copy(openRouterApiKey = key)
         }
         viewModelScope.launch {
             try { store.setKey(provider, key) } catch (_: Exception) { }
@@ -438,11 +444,18 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Persist all provider keys at once. */
-    fun updateKeys(geminiKey: String, openaiKey: String, zenKey: String) {
-        _settings.value = _settings.value.copy(geminiApiKey = geminiKey, openaiApiKey = openaiKey, zenApiKey = zenKey)
+    fun updateKeys(
+        geminiKey: String, openaiKey: String, anthropicKey: String,
+        zenKey: String, goKey: String, openRouterKey: String
+    ) {
+        _settings.value = _settings.value.copy(
+            geminiApiKey = geminiKey, openaiApiKey = openaiKey,
+            anthropicApiKey = anthropicKey, zenApiKey = zenKey,
+            goApiKey = goKey, openRouterApiKey = openRouterKey
+        )
         viewModelScope.launch {
             try {
-                store.setKeys(geminiKey, openaiKey, zenKey)
+                store.setKeys(geminiKey, openaiKey, anthropicKey, zenKey, goKey, openRouterKey)
             } catch (_: Exception) { }
         }
     }
@@ -565,6 +578,14 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     private fun buildProvider(s: AgentSettings, key: String, model: String) = when (s.provider) {
         AgentProvider.GEMINI -> GeminiProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
         AgentProvider.OPENAI -> OpenAiProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
+        AgentProvider.ANTHROPIC -> AnthropicProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
+        AgentProvider.OPENCODE_GO -> GoProvider(
+            HttpClients.okHttpPost(),
+            apiKey = key,
+            model = model,
+            sessionId = s.sessionId.ifBlank { ZenProvider.DEFAULT_SESSION_ID }
+        )
+        AgentProvider.OPENROUTER -> OpenRouterProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
         AgentProvider.OPENCODE_ZEN -> ZenProvider(
             HttpClients.okHttpPost(),
             apiKey = key,
@@ -601,10 +622,14 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             try {
                 val probe = buildProvider(s, key, model = "")
                 val fetched = probe.listModels(key)
-                // Free = live `-free` suffix (spark included: it works via /responses).
-                val free = if (s.provider == AgentProvider.OPENCODE_ZEN) {
-                    fetched.filter { it.trim().lowercase().endsWith("-free") }
-                } else emptyList()
+                // Free = live suffix (`-free` on Zen, `:free` variants on OpenRouter).
+                val free = when (s.provider) {
+                    AgentProvider.OPENCODE_ZEN ->
+                        fetched.filter { it.trim().lowercase().endsWith("-free") }
+                    AgentProvider.OPENROUTER ->
+                        fetched.filter { it.trim().lowercase().endsWith(":free") }
+                    else -> emptyList()
+                }
                 _freeModels.value = rankModels(free)
                 _models.value = rankModelsFreeFirst(fetched, free.toSet())
                 // Re-read: [s] may predate the settings restore that finished
@@ -743,8 +768,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * True when the model needs the provider key: Gemini/OpenAI always;
-     * Zen only for non-free (`-free`) ids (free ids run keyless).
+     * True when the model needs the provider key: everything except free
+     * Zen (`-free`) ids — the keyed clouds and the Go subscription always
+     * need their key.
      */
     private fun zenNeedsKey(model: String): Boolean {
         if (_settings.value.provider != AgentProvider.OPENCODE_ZEN) return true

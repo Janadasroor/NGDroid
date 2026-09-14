@@ -24,35 +24,42 @@ import okhttp3.Request
  * credits fails with `insufficient_quota / credit_balance_exhausted`,
  * verified live). Requires the user's own key — no free tier.
  */
-class OpenAiProvider(
+open class OpenAiProvider(
     private val http: HttpPost,
     private val apiKey: String,
-    private val model: String = "gpt-4.1-mini"
-) : LlmProvider {
-
-    override val id: String = "openai"
-    override val displayName: String = "OpenAI"
+    private val model: String = "gpt-4.1-mini",
+    /** Override for OpenAI-compatible sibling gateways (OpenRouter). */
+    private val baseUrl: String = OPENAI_BASE,
+    /** Extra static headers (OpenRouter attribution). */
+    private val extraHeaders: Map<String, String> = emptyMap(),
+    override val id: String = "openai",
+    override val displayName: String = "OpenAI",
     override val defaultModel: String = "gpt-4.1-mini"
+) : LlmProvider {
 
     private val json = Json { ignoreUnknownKeys = true }
 
     override suspend fun chat(req: LlmRequest): LlmResponse = withContext(Dispatchers.IO) {
-        val url = "$OPENAI_BASE/chat/completions"
+        val url = "$baseUrl/chat/completions"
         val headers = mapOf(
             "Authorization" to "Bearer $apiKey",
             "Content-Type" to "application/json"
-        )
+        ) + extraHeaders
         val body = buildRequestJson(model, req.systemPrompt, req.messages, req.tools, req.temperature, req.maxTokens)
         parseChatResponse(http(url, headers, body))
     }
 
     override suspend fun listModels(apiKey: String): List<String> = withContext(Dispatchers.IO) {
-        val client = OkHttpClient()
-        val request = Request.Builder()
-            .url("$OPENAI_BASE/models")
-            .header("Authorization", "Bearer $apiKey")
+        val builder = Request.Builder()
+            .url("$baseUrl/models")
             .get()
-            .build()
+        // Some gateways (OpenRouter) serve /models publicly: only send auth with a key.
+        if (apiKey.isNotBlank()) {
+            builder.header("Authorization", "Bearer $apiKey")
+        }
+        for ((k, v) in extraHeaders) builder.header(k, v)
+        val client = OkHttpClient()
+        val request = builder.build()
         client.newCall(request).execute().use { resp ->
             val body = resp.body?.string() ?: "{}"
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}: ${body.take(500)}")

@@ -17,7 +17,10 @@ class AgentDataStore(private val context: Context) {
         val PROVIDER = stringPreferencesKey("agent_provider")
         val GEMINI_KEY = stringPreferencesKey("gemini_key")
         val OPENAI_KEY = stringPreferencesKey("openai_key")
+        val ANTHROPIC_KEY = stringPreferencesKey("anthropic_key")
         val ZEN_KEY = stringPreferencesKey("zen_key")
+        val GO_KEY = stringPreferencesKey("go_key")
+        val OPENROUTER_KEY = stringPreferencesKey("openrouter_key")
         val SEARCH_KEY = stringPreferencesKey("search_key")
         val SELECTED_MODEL = stringPreferencesKey("selected_model")
         val SESSION_ID = stringPreferencesKey("agent_session")
@@ -42,7 +45,10 @@ class AgentDataStore(private val context: Context) {
             provider = try { AgentProvider.valueOf(providerStr) } catch (_: Exception) { AgentProvider.OPENCODE_ZEN },
             geminiApiKey = prefs[Keys.GEMINI_KEY] ?: "",
             openaiApiKey = prefs[Keys.OPENAI_KEY] ?: "",
+            anthropicApiKey = prefs[Keys.ANTHROPIC_KEY] ?: "",
             zenApiKey = prefs[Keys.ZEN_KEY] ?: "",
+            goApiKey = prefs[Keys.GO_KEY] ?: "",
+            openRouterApiKey = prefs[Keys.OPENROUTER_KEY] ?: "",
             searchApiKey = prefs[Keys.SEARCH_KEY] ?: "",
             // Migrate legacy "model_override" value forward once, then stop reading it.
             selectedModel = prefs[Keys.SELECTED_MODEL]
@@ -74,16 +80,25 @@ class AgentDataStore(private val context: Context) {
             when (provider) {
                 AgentProvider.GEMINI -> it[Keys.GEMINI_KEY] = key
                 AgentProvider.OPENAI -> it[Keys.OPENAI_KEY] = key
+                AgentProvider.ANTHROPIC -> it[Keys.ANTHROPIC_KEY] = key
                 AgentProvider.OPENCODE_ZEN -> it[Keys.ZEN_KEY] = key
+                AgentProvider.OPENCODE_GO -> it[Keys.GO_KEY] = key
+                AgentProvider.OPENROUTER -> it[Keys.OPENROUTER_KEY] = key
             }
         }
     }
 
-    suspend fun setKeys(geminiKey: String, openaiKey: String, zenKey: String) {
+    suspend fun setKeys(
+        geminiKey: String, openaiKey: String, anthropicKey: String,
+        zenKey: String, goKey: String, openRouterKey: String
+    ) {
         context.agentDataStore.edit {
             it[Keys.GEMINI_KEY] = geminiKey
             it[Keys.OPENAI_KEY] = openaiKey
+            it[Keys.ANTHROPIC_KEY] = anthropicKey
             it[Keys.ZEN_KEY] = zenKey
+            it[Keys.GO_KEY] = goKey
+            it[Keys.OPENROUTER_KEY] = openRouterKey
         }
     }    suspend fun setSearchKey(key: String) {
         context.agentDataStore.edit { it[Keys.SEARCH_KEY] = key }
@@ -134,7 +149,10 @@ class AgentDataStore(private val context: Context) {
             it[Keys.PROVIDER] = settings.provider.name
             it[Keys.GEMINI_KEY] = settings.geminiApiKey
             it[Keys.OPENAI_KEY] = settings.openaiApiKey
+            it[Keys.ANTHROPIC_KEY] = settings.anthropicApiKey
             it[Keys.ZEN_KEY] = settings.zenApiKey
+            it[Keys.GO_KEY] = settings.goApiKey
+            it[Keys.OPENROUTER_KEY] = settings.openRouterApiKey
             it[Keys.SEARCH_KEY] = settings.searchApiKey
             it[Keys.SELECTED_MODEL] = settings.selectedModel
             it[Keys.SESSION_ID] = settings.sessionId
@@ -159,7 +177,10 @@ class AgentDataStore(private val context: Context) {
             it.remove(Keys.PROVIDER)
             it.remove(Keys.GEMINI_KEY)
             it.remove(Keys.OPENAI_KEY)
+            it.remove(Keys.ANTHROPIC_KEY)
             it.remove(Keys.ZEN_KEY)
+            it.remove(Keys.GO_KEY)
+            it.remove(Keys.OPENROUTER_KEY)
             it.remove(Keys.SEARCH_KEY)
             it.remove(Keys.SELECTED_MODEL)
             it.remove(stringPreferencesKey("model_override"))

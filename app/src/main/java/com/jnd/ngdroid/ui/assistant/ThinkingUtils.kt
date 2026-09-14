@@ -422,9 +422,15 @@ fun isChatError(text: String): Boolean {
         lower.startsWith("session handshake failed.") -> true
         lower.startsWith("the provider is having issues") -> true
         lower.startsWith("openai error:") -> true
+        lower.startsWith("anthropic error:") -> true
+        lower.startsWith("gateway error:") -> true
+        "credit balance" in lower -> true
+        "invalid x-api-key" in lower -> true
+        "overloaded" in lower -> true
         // Raw provider error bodies (no "OpenAI error:" prefix — e.g. quota
         // JSON surfaced via AgentErrors.extractMessage).
         "no credits remaining" in lower -> true
+        "insufficient credits" in lower -> true
         "current quota" in lower -> true
         "insufficient_quota" in lower || "insufficient quota" in lower -> true
         "credit_balance" in lower -> true

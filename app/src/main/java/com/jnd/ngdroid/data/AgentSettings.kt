@@ -3,14 +3,20 @@ package com.jnd.ngdroid.data
 enum class AgentProvider(val displayName: String) {
     GEMINI("Gemini"),
     OPENAI("OpenAI"),
-    OPENCODE_ZEN("OpenCode Zen")
+    ANTHROPIC("Anthropic"),
+    OPENCODE_ZEN("OpenCode Zen"),
+    OPENCODE_GO("OpenCode Go"),
+    OPENROUTER("OpenRouter")
 }
 
 data class AgentSettings(
     val provider: AgentProvider = AgentProvider.OPENCODE_ZEN,
     val geminiApiKey: String = "",
     val openaiApiKey: String = "",
+    val anthropicApiKey: String = "",
     val zenApiKey: String = "",
+    val goApiKey: String = "",
+    val openRouterApiKey: String = "",
     /** Optional Brave Search key. Blank = free DuckDuckGo backend. */
     val searchApiKey: String = "",
     /** Explicit user-picked model id. Blank = nothing chosen yet. Never defaulted in code. */
@@ -36,7 +42,10 @@ data class AgentSettings(
     fun activeApiKey(): String = when (provider) {
         AgentProvider.GEMINI -> geminiApiKey.trim()
         AgentProvider.OPENAI -> openaiApiKey.trim()
+        AgentProvider.ANTHROPIC -> anthropicApiKey.trim()
         AgentProvider.OPENCODE_ZEN -> zenApiKey.trim()
+        AgentProvider.OPENCODE_GO -> goApiKey.trim()
+        AgentProvider.OPENROUTER -> openRouterApiKey.trim()
     }
 
     fun hasKey(): Boolean = activeApiKey().isNotEmpty()

@@ -33,7 +33,9 @@ class ZenProvider(
     private val http: HttpPost,
     private val apiKey: String,
     private val model: String = "big-pickle",
-    private val sessionId: String? = DEFAULT_SESSION_ID
+    private val sessionId: String? = DEFAULT_SESSION_ID,
+    /** Override for sibling gateways (OpenCode Go shares this protocol). */
+    private val baseUrl: String = ZEN_BASE
 ) : LlmProvider {
 
     override val id: String = "opencode-zen"
@@ -54,11 +56,11 @@ class ZenProvider(
             headers["x-opencode-session"] = sessionId
         }
         if (isResponsesOnlyModel(requested)) {
-            val url = "$ZEN_BASE/responses"
+            val url = "$baseUrl/responses"
             val body = buildResponsesJson(requested, req.systemPrompt, req.messages, req.tools, req.temperature, req.maxTokens)
             parseResponsesResponse(http(url, headers, body))
         } else {
-            val url = "$ZEN_BASE/chat/completions"
+            val url = "$baseUrl/chat/completions"
             val body = buildRequestJson(requested, req.systemPrompt, req.messages, req.tools, req.temperature, req.maxTokens)
             parseChatResponse(http(url, headers, body))
         }
@@ -66,7 +68,7 @@ class ZenProvider(
 
     override suspend fun listModels(apiKey: String): List<String> = withContext(Dispatchers.IO) {
         val builder = Request.Builder()
-            .url("$ZEN_BASE/models")
+            .url("$baseUrl/models")
             .get()
         // /models is public on Zen: only send auth when we have a key.
         if (apiKey.isNotBlank()) {
