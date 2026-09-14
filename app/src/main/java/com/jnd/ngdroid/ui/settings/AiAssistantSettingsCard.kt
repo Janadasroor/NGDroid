@@ -1,25 +1,37 @@
 package com.jnd.ngdroid.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -34,6 +46,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.data.AgentProvider
+import com.jnd.ngdroid.ui.assistant.AssistantMarkdownWithMath
 import com.jnd.ngdroid.ui.assistant.AssistantViewModel
 import kotlinx.coroutines.delay
 
@@ -222,6 +235,38 @@ fun AiAssistantSettingsCard(
                 )
             }
 
+            HorizontalDivider()
+            AgentSkillsSection(
+                agentSettings = agentSettings,
+                onToggle = { id, on -> assistantViewModel.updateSkill(id, on) },
+                onReset = {
+                    com.jnd.ngdroid.data.BUILTIN_SKILL_IDS.forEach {
+                        assistantViewModel.updateSkill(it, true)
+                    }
+                }
+            )
+
+            HorizontalDivider()
+            CustomSkillsSection(
+                skills = agentSettings.customSkills,
+                onAdd = { name, description, instructions ->
+                    assistantViewModel.addCustomSkill(name, description, instructions) != null
+                },
+                onUpdate = { id, name, description, instructions ->
+                    assistantViewModel.updateCustomSkill(id, name, description, instructions)
+                },
+                onDelete = { assistantViewModel.deleteCustomSkill(it) },
+                onToggle = { id, on -> assistantViewModel.setCustomSkillEnabled(id, on) }
+            )
+
+            HorizontalDivider()
+            AgentAdvancedSection(
+                agentSettings = agentSettings,
+                onMaxIter = { assistantViewModel.updateMaxIterations(it) },
+                onStub = { assistantViewModel.updateStubRetries(it) },
+                onAutoPick = { assistantViewModel.updateAutoPick(it) }
+            )
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -244,6 +289,291 @@ fun AiAssistantSettingsCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AgentSkillsSection(
+    agentSettings: com.jnd.ngdroid.data.AgentSettings,
+    onToggle: (String, Boolean) -> Unit,
+    onReset: () -> Unit
+) {
+    val groups = com.jnd.ngdroid.data.BUILTIN_SKILLS.groupBy { it.group }
+    val onCount = com.jnd.ngdroid.data.BUILTIN_SKILLS.count { agentSettings.isSkillEnabled(it.id) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Agent skills", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(
+                "$onCount of ${com.jnd.ngdroid.data.BUILTIN_SKILLS.size} on",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = onReset) { Text("All on") }
+        }
+        Text(
+            "Turn tools off to make the agent faster or offline-friendly. SPICE validation stays recommended.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        groups.forEach { (group, skills) ->
+            Text(group, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            skills.forEach { skill ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(skill.title, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            skill.blurb,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = agentSettings.isSkillEnabled(skill.id),
+                        onCheckedChange = { onToggle(skill.id, it) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomSkillsSection(
+    skills: List<com.jnd.ngdroid.data.CustomSkill>,
+    onAdd: (String, String, String) -> Boolean,
+    onUpdate: (String, String, String, String) -> Boolean,
+    onDelete: (String) -> Unit,
+    onToggle: (String, Boolean) -> Unit
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<com.jnd.ngdroid.data.CustomSkill?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Custom skills", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+            Text(
+                if (skills.isEmpty()) "none yet" else "${skills.count { it.enabled }} on",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            TextButton(onClick = { editing = null; showDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = null)
+                Text("New")
+            }
+        }
+        Text(
+            "SKILL.md style: description picks when it loads, body loads on demand via read_skill.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (skills.isEmpty()) {
+            Text(
+                "No custom skills — tap New to create one.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        skills.forEach { skill ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(skill.name, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        skill.description.ifBlank { skill.instructions }.take(140),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
+                IconButton(onClick = { editing = skill; showDialog = true }) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit ${skill.name}")
+                }
+                IconButton(onClick = { onDelete(skill.id) }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete ${skill.name}")
+                }
+                Switch(
+                    checked = skill.enabled,
+                    onCheckedChange = { onToggle(skill.id, it) }
+                )
+            }
+        }
+    }
+    if (showDialog) {
+        CustomSkillDialog(
+            initial = editing,
+            onDismiss = { showDialog = false },
+            onSave = { name, description, instructions ->
+                val ok = if (editing == null) onAdd(name, description, instructions)
+                else onUpdate(editing!!.id, name, description, instructions)
+                if (ok) showDialog = false
+                ok
+            }
+        )
+    }
+}
+
+@Composable
+private fun CustomSkillDialog(
+    initial: com.jnd.ngdroid.data.CustomSkill?,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> Boolean
+) {
+    var name by remember(initial?.id) { mutableStateOf(initial?.name ?: "") }
+    var description by remember(initial?.id) { mutableStateOf(initial?.description ?: "") }
+    var instructions by remember(initial?.id) { mutableStateOf(initial?.instructions ?: "") }
+    var preview by remember(initial?.id) { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    // Same SKILL.md the agent loads (frontmatter + title + body), rendered with
+    // the same chat markdown engine so What-You-See matches the assistant bubble.
+    val previewMarkdown = remember(name, description, instructions) {
+        com.jnd.ngdroid.data.previewSkillMarkdown(name, description, instructions)
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (initial == null) "New skill" else "Edit skill") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = !preview,
+                        onClick = { preview = false },
+                        label = { Text("Write") }
+                    )
+                    FilterChip(
+                        selected = preview,
+                        onClick = { preview = true },
+                        label = { Text("Preview") }
+                    )
+                }
+                if (!preview) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it; error = null },
+                        label = { Text("Name") },
+                        placeholder = { Text("e.g. Power ratings") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = description,
+                        onValueChange = { description = it; error = null },
+                        label = { Text("Description (when to use)") },
+                        placeholder = { Text("e.g. Use when explaining power or picking parts") },
+                        minLines = 2,
+                        maxLines = 3,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = instructions,
+                        onValueChange = { instructions = it; error = null },
+                        label = { Text("Instructions (SKILL.md body)") },
+                        placeholder = { Text("Steps the agent follows once the skill loads") },
+                        minLines = 3,
+                        maxLines = 6,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 200.dp, max = 420.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        AssistantMarkdownWithMath(previewMarkdown)
+                    }
+                }
+                if (error != null) {
+                    Text(error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val err = com.jnd.ngdroid.data.validateCustomSkill(name, description, instructions)
+                if (err != null) {
+                    error = err
+                    return@TextButton
+                }
+                if (!onSave(name.trim(), description.trim(), instructions.trim())) {
+                    error = "Could not save — check limits and retry."
+                }
+            }) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
+}
+
+@Composable
+private fun AgentAdvancedSection(
+    agentSettings: com.jnd.ngdroid.data.AgentSettings,
+    onMaxIter: (Int) -> Unit,
+    onStub: (Int) -> Unit,
+    onAutoPick: (Boolean) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Reasoning limits", style = MaterialTheme.typography.bodyMedium)
+        Text(
+            "Higher limits solve harder tasks but cost more time and tokens.",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Max steps (${agentSettings.maxIterations})")
+            Slider(
+                value = agentSettings.maxIterations.toFloat(),
+                onValueChange = { onMaxIter(it.toInt()) },
+                valueRange = 4f..20f,
+                steps = 15,
+                modifier = Modifier.fillMaxWidth(0.5f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Stub retries (${agentSettings.stubRetries})")
+            Slider(
+                value = agentSettings.stubRetries.toFloat(),
+                onValueChange = { onStub(it.toInt()) },
+                valueRange = 0f..3f,
+                steps = 2,
+                modifier = Modifier.fillMaxWidth(0.5f)
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Auto-pick free model", style = MaterialTheme.typography.bodySmall)
+                Text(
+                    "Choose the first free model when none is selected.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Switch(checked = agentSettings.autoPickFreeModel, onCheckedChange = onAutoPick)
+        }
+        OutlinedButton(
+            onClick = {
+                onMaxIter(12)
+                onStub(1)
+                onAutoPick(true)
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Reset reasoning defaults") }
     }
 }
 

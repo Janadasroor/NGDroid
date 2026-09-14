@@ -76,11 +76,18 @@ fun SettingsScreen(
                 contentDescription = "Settings",
                 tint = MaterialTheme.colorScheme.primary
             )
-            Text(
-                text = "Preferences & Styling",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Preferences & Styling",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Tuned for Android 8+; changes apply instantly.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
 
         // Theme & Color Section
@@ -97,7 +104,19 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text("App Theme & Color", style = MaterialTheme.typography.titleMedium)
+                    Text("App Theme & Color", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            onSettingsChanged {
+                                it.copy(
+                                    themeMode = ThemeMode.SYSTEM,
+                                    accentColorTheme = AccentColorTheme.CYAN,
+                                    buttonStyle = ButtonStyle.ROUNDED,
+                                    dialogCornerRadiusDp = 28
+                                )
+                            }
+                        }
+                    ) { Text("Reset") }
                 }
 
                 HorizontalDivider()
@@ -235,7 +254,12 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.Default.TextFields, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Netlist Editor Options", style = MaterialTheme.typography.titleMedium)
+                    Text("Netlist Editor Options", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            onSettingsChanged { it.copy(editorFontSizeSp = 14, showLineNumbers = true) }
+                        }
+                    ) { Text("Reset") }
                 }
 
                 HorizontalDivider()
@@ -291,7 +315,19 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Text("Waveform Plot Customization", style = MaterialTheme.typography.titleMedium)
+                    Text("Waveform Plot Customization", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.TextButton(
+                        onClick = {
+                            onSettingsChanged {
+                                it.copy(
+                                    traceStrokeWidthDp = 2.5f,
+                                    showGridLines = true,
+                                    showDataPoints = false,
+                                    darkPlotBackground = true
+                                )
+                            }
+                        }
+                    ) { Text("Reset") }
                 }
 
                 HorizontalDivider()
