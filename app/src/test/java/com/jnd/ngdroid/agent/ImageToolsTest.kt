@@ -86,6 +86,36 @@ class ImageToolsTest {
     }
 
     @Test
+    fun splitChatSegmentsLiftsImagesInPlace() {
+        val text = "**Schematic image:** ![Boost Converter](https://example.com/boost.png)\n\nTopology ok."
+        val segs = splitChatSegments(text)
+        assertEquals(3, segs.size)
+        assertEquals(ChatSegment.Text("**Schematic image:** "), segs[0])
+        assertEquals(
+            ChatSegment.Image("https://example.com/boost.png", "Boost Converter"),
+            segs[1]
+        )
+        assertEquals(ChatSegment.Text("\n\nTopology ok."), segs[2])
+    }
+
+    @Test
+    fun splitChatSegmentsLeavesFencesAndBadUrlsAlone() {
+        val text = "```spice\n![x](https://example.com/a.png)\n```\n\n" +
+            "![doc](https://example.com/d.pdf) done"
+        val segs = splitChatSegments(text)
+        assertEquals(1, segs.size)
+        assertEquals(ChatSegment.Text(text), segs[0])
+        assertTrue(splitChatSegments("plain text").all { it is ChatSegment.Text })
+    }
+
+    @Test
+    fun extractBareImageUrlsSkipsMarkdownImages() {
+        val text = "![pin](https://example.com/pin.png) and https://cdn.example.com/p.jpg"
+        assertEquals(listOf("https://cdn.example.com/p.jpg"), extractBareImageUrls(text))
+        assertTrue(extractBareImageUrls("![x](https://e.com/a.png)").isEmpty())
+    }
+
+    @Test
     fun commonsParserResolvesSvgToPngPreview() {
         val json = """
             {"query":{"pages":{

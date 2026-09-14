@@ -1,8 +1,10 @@
 package com.jnd.ngdroid.ui.assistant
 
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,7 +29,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mikepenz.markdown.compose.components.markdownComponents
+import com.mikepenz.markdown.compose.elements.MarkdownImage
 import com.mikepenz.markdown.m3.Markdown
+import com.mikepenz.markdown.m3.elements.MarkdownCheckBox
+import com.mikepenz.markdown.utils.getUnescapedTextInNode
+import com.jnd.ngdroid.agent.stripMarkdownImagesForDisplay
+import org.intellij.markdown.MarkdownElementTypes
+import org.intellij.markdown.ast.ASTNode
 
 /**
  * Assistant message body with native math support and chat-scaled markdown.
@@ -43,11 +52,36 @@ import com.mikepenz.markdown.m3.Markdown
  * `#Title` without a space is fixed by [normalizeMarkdownForChat].
  */
 @Composable
-fun AssistantMarkdownWithMath(text: String) {
-    val normalized = remember(text) { normalizeMarkdownForChat(text) }
+fun AssistantMarkdownWithMath(
+    text: String,
+    onImageClick: ((String) -> Unit)? = null
+) {
+    val normalized = remember(text) {
+        normalizeMarkdownForChat(stripMarkdownImagesForDisplay(text))
+    }
     val segments = remember(normalized) { parseDocSegments(normalized) }
     val colors = chatMarkdownColors()
     val typography = chatMarkdownTypography()
+    // Inline images have no click API in mikepenz 0.35.0: override the image
+    // component with a clickable wrapper that opens the full viewer.
+    // findChildOfTypeRecursive is internal, so walk the AST ourselves.
+    val components = remember(onImageClick) {
+        markdownComponents(
+            image = { model ->
+                val link = findImageLink(model.content, model.node)
+                if (link != null && onImageClick != null) {
+                    Box(modifier = Modifier.clickable { onImageClick(link) }) {
+                        MarkdownImage(model.content, model.node)
+                    }
+                } else {
+                    MarkdownImage(model.content, model.node)
+                }
+            },
+            checkbox = {
+                MarkdownCheckBox(it.content, it.node, it.typography.text)
+            }
+        )
+    }
     if (segments.none { it is DocSegment.DisplayMath }) {
         val pretty = remember(normalized) { prettifyInlineMath(normalized) }
         Markdown(
@@ -55,7 +89,8 @@ fun AssistantMarkdownWithMath(text: String) {
             colors = colors,
             typography = typography,
             modifier = chatMarkdownModifier(),
-            imageTransformer = AssistantImageTransformer
+            imageTransformer = AssistantImageTransformer,
+            components = components
         )
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,7 +103,8 @@ fun AssistantMarkdownWithMath(text: String) {
                                 colors = colors,
                                 typography = typography,
                                 modifier = chatMarkdownModifier(),
-                                imageTransformer = AssistantImageTransformer
+                                imageTransformer = AssistantImageTransformer,
+                                components = components
                             )
                         }
                     is DocSegment.DisplayMath -> MathDisplayCard(latex = seg.latex)
@@ -76,6 +112,21 @@ fun AssistantMarkdownWithMath(text: String) {
             }
         }
     }
+}
+
+private fun findImageLink(content: String, node: ASTNode): String? {
+    val dest = findLinkDestination(node) ?: return null
+    return runCatching { dest.getUnescapedTextInNode(content) }
+        .getOrNull()?.takeIf { it.isNotBlank() }
+}
+
+private fun findLinkDestination(node: ASTNode): ASTNode? {
+    if (node.type == MarkdownElementTypes.LINK_DESTINATION) return node
+    for (child in node.children) {
+        val found = findLinkDestination(child)
+        if (found != null) return found
+    }
+    return null
 }
 
 /**

@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,12 +46,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import coil3.compose.AsyncImage
 import coil3.compose.SubcomposeAsyncImage
+import com.jnd.ngdroid.agent.HttpClients
 import com.jnd.ngdroid.ui.theme.LocalDialogShape
 import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.io.File
+import java.util.concurrent.TimeUnit
 
-/** Horizontal thumbnail strip under a chat message; tap opens [ImageViewerDialog]. */
+/** Horizontal thumbnail strip for bare image URLs; tap opens [ImageViewerDialog]. */
 @Composable
 fun ChatImageStrip(
     urls: List<String>,
@@ -76,6 +87,28 @@ fun ChatImageStrip(
     }
 }
 
+/**
+ * Full-width in-place chat image lifted out of the markdown prose (inline
+ * placeholders overlap surrounding text). Tap opens [ImageViewerDialog].
+ */
+@Composable
+fun ChatImageCard(
+    url: String,
+    alt: String,
+    onOpen: (String) -> Unit
+) {
+    AsyncImage(
+        model = url,
+        contentDescription = alt.ifBlank { "Chat image — tap to enlarge" },
+        contentScale = ContentScale.FillWidth,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White)
+            .clickable { onOpen(url) }
+    )
+}
+
 private class ImageZoom {
     var scale by mutableStateOf(1f)
     var offset by mutableStateOf(Offset.Zero)
@@ -90,6 +123,8 @@ fun ImageViewerDialog(
     LockOrientationWhileShown()
     val context = LocalContext.current
     val zoom = remember(url) { ImageZoom() }
+    val scope = rememberCoroutineScope()
+    var sharing by remember(url) { mutableStateOf(false) }
     // API 26-28: DownloadManager into public Pictures needs the legacy
     // runtime grant; queue the tap and run it after the user grants.
     var pendingSave by remember(url) { mutableStateOf(false) }
@@ -133,11 +168,16 @@ fun ImageViewerDialog(
                     TextButton(onClick = { saveWithPermission() }) {
                         Text("Save", color = Color.White)
                     }
-                    TextButton(onClick = { openInBrowser(context, url) }) {
-                        Text("Open", color = Color.White)
-                    }
-                    TextButton(onClick = { shareImageLink(context, url) }) {
-                        Text("Share", color = Color.White)
+                    TextButton(
+                        onClick = {
+                            if (!sharing) {
+                                sharing = true
+                                shareImageFile(context, scope, url) { sharing = false }
+                            }
+                        },
+                        enabled = !sharing
+                    ) {
+                        Text(if (sharing) "Sharing…" else "Share", color = Color.White)
                     }
                 }
                 Box(
@@ -187,6 +227,7 @@ fun ImageViewerDialog(
                         },
                         modifier = Modifier
                             .fillMaxSize()
+                            .background(Color.White)
                             .graphicsLayer(
                                 scaleX = zoom.scale,
                                 scaleY = zoom.scale,
@@ -258,14 +299,85 @@ private fun openInBrowser(context: Context, url: String) {
     }
 }
 
-private fun shareImageLink(context: Context, url: String) {
-    try {
-        val share = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, url)
+/**
+ * Share the actual image bytes (not just the link): download with a browser
+ * UA (Wikimedia etc. 403 bot UAs) into `cache/shared_images/` and share via
+ * FileProvider (`shared_images` cache-path). Falls back to a link share when
+ * the download fails, so Share never dead-ends.
+ */
+private fun shareImageFile(
+    context: Context,
+    scope: CoroutineScope,
+    url: String,
+    onDone: () -> Unit
+) {
+    scope.launch(Dispatchers.IO) {
+        try {
+            val client = OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(30, TimeUnit.SECONDS)
+                .build()
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", HttpClients.BROWSER_USER_AGENT)
+                .get()
+                .build()
+            client.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+                val bytes = resp.body?.bytes() ?: throw IllegalStateException("empty image")
+                val contentType = resp.header("Content-Type")?.substringBefore(';')?.trim()
+                val dir = File(context.cacheDir, "shared_images").apply { mkdirs() }
+                val file = File(dir, fileNameOf(url))
+                file.writeBytes(bytes)
+                val mime = mimeTypeOf(contentType, file.name)
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    file
+                )
+                withContext(Dispatchers.Main) {
+                    try {
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            type = mime
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            putExtra(Intent.EXTRA_TEXT, url)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(share, "Share image"))
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_LONG).show()
+                    } finally {
+                        onDone()
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            withContext(Dispatchers.Main) {
+                try {
+                    val fallback = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, url)
+                    }
+                    context.startActivity(Intent.createChooser(fallback, "Share image link"))
+                    Toast.makeText(context, "Image download failed — shared link instead", Toast.LENGTH_SHORT).show()
+                } catch (inner: Exception) {
+                    Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_LONG).show()
+                } finally {
+                    onDone()
+                }
+            }
         }
-        context.startActivity(Intent.createChooser(share, "Share image"))
-    } catch (e: Exception) {
-        Toast.makeText(context, "Share failed: ${e.message}", Toast.LENGTH_LONG).show()
+    }
+}
+
+private fun mimeTypeOf(contentType: String?, fileName: String): String {
+    if (!contentType.isNullOrBlank() && '/' in contentType) return contentType
+    return when (fileName.substringAfterLast('.', "").lowercase()) {
+        "jpg", "jpeg" -> "image/jpeg"
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "bmp" -> "image/bmp"
+        else -> "image/*"
     }
 }

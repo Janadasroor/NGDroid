@@ -141,11 +141,91 @@ private fun cleanImageUrl(raw: String): String? {
 }
 
 /**
+ * Strip markdown images (`![alt](url)`) from display prose, leaving the alt
+ * text (or `[Image]` when empty). Inline images inside paragraphs/lists
+ * render as InlineTextContent placeholders that overlap surrounding text;
+ * chat shows images once via the thumbnail strip + full viewer instead. Pure.
+ */
+fun stripMarkdownImagesForDisplay(text: String): String {
+    if (!text.contains("![")) return text
+    val re = Regex("""!\[([^\]]*)]\([^)\s]+(?:\s+["'][^"']*["'])?\)""")
+    return re.replace(text) { match ->
+        val alt = match.groupValues[1].trim()
+        if (alt.isNotEmpty()) alt else "[Image]"
+    }
+}
+
+/** A prose run or a lifted-out markdown image, in message order. */
+sealed interface ChatSegment {
+    data class Text(val text: String) : ChatSegment
+    data class Image(val url: String, val alt: String) : ChatSegment
+}
+
+private val chatMarkdownImageRe =
+    Regex("""!\[([^\]]*)]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)""")
+
+/**
+ * Split message text at markdown `![alt](url)` boundaries so images render as
+ * their own full-width cards instead of inline placeholders that overlap
+ * surrounding text. Fenced code blocks pass through untouched. Pure.
+ */
+fun splitChatSegments(text: String): List<ChatSegment> {
+    if (!text.contains("![")) return listOf(ChatSegment.Text(text))
+    val out = mutableListOf<ChatSegment>()
+    val prose = StringBuilder()
+    fun flushProse() {
+        if (prose.isNotEmpty()) {
+            out.add(ChatSegment.Text(prose.toString()))
+            prose.clear()
+        }
+    }
+    var inFence = false
+    val lines = text.split('\n')
+    lines.forEachIndexed { index, line ->
+        if (line.trimStart().startsWith("```")) {
+            inFence = !inFence
+            prose.append(line)
+        } else if (!inFence) {
+            var cursor = 0
+            for (match in chatMarkdownImageRe.findAll(line)) {
+                val url = cleanImageUrl(match.groupValues[2]) ?: continue
+                prose.append(line.substring(cursor, match.range.first))
+                flushProse()
+                out.add(ChatSegment.Image(url, match.groupValues[1].trim()))
+                cursor = match.range.last + 1
+            }
+            prose.append(line.substring(cursor))
+        } else {
+            prose.append(line)
+        }
+        if (index < lines.size - 1) prose.append('\n')
+    }
+    flushProse()
+    return out
+}
+
+/**
+ * Bare http(s) image URLs that are NOT part of markdown `![alt](url)` syntax
+ * (those render as in-place cards). Backs the thumbnail strip. Pure.
+ */
+fun extractBareImageUrls(text: String, maxImages: Int = 6): List<String> {
+    if (maxImages <= 0) return emptyList()
+    val scrubbed = chatMarkdownImageRe.replace(text, "")
+    val out = mutableListOf<String>()
+    val bareRe = Regex("""https?://[^\s)<>\]"'"]+""")
+    for (match in bareRe.findAll(scrubbed)) {
+        val url = cleanImageUrl(match.value) ?: continue
+        if (url !in out) out.add(url)
+        if (out.size >= maxImages) break
+    }
+    return out
+}
+
+/**
  * Collect direct image URLs from message text: markdown `![alt](url)` first,
  * then bare http(s) image URLs. Deduped, order-preserving, capped. Pure.
  */
-fun extractImageUrls(text: String, maxImages: Int = 6): List<String> {
-    if (maxImages <= 0) return emptyList()
+fun extractImageUrls(text: String, maxImages: Int = 6): List<String> {    if (maxImages <= 0) return emptyList()
     val out = mutableListOf<String>()
     val markdownRe = Regex("""!\[[^\]]*]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)""")
     for (match in markdownRe.findAll(text)) {

@@ -5,4 +5,5 @@
     <cache-path name="pdf_exports" path="pdf_exports/" />
     <files-path name="assistant_files" path="assistant_files/" />
     <files-path name="uploads" path="uploads/" />
+    <cache-path name="shared_images" path="shared_images/" />
 </paths>

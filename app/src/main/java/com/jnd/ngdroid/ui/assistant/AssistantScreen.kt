@@ -105,7 +105,9 @@ import kotlinx.coroutines.launch
 import android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import com.jnd.ngdroid.agent.extractImageUrls
+import com.jnd.ngdroid.agent.ChatSegment
+import com.jnd.ngdroid.agent.extractBareImageUrls
+import com.jnd.ngdroid.agent.splitChatSegments
 import com.jnd.ngdroid.agent.formatFileSize
 import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AndroidUploadStore
@@ -517,14 +519,36 @@ fun AssistantScreen(
                                 )
                                 Spacer(Modifier.height(2.dp))
                             }
-                            AssistantMarkdownWithMath(msg.text)
-                            // Chat images: thumbnails of every image in the
-                            // response; tap opens the zoom/save viewer.
-                            val imageUrls = remember(msg.text) { extractImageUrls(msg.text) }
                             var viewerUrl by remember(msg.text) { mutableStateOf<String?>(null) }
-                            if (imageUrls.isNotEmpty()) {
+                            // Markdown images render as full-width cards in place
+                            // (inline placeholders overlap surrounding text); tap
+                            // opens the zoom/save/share viewer.
+                            val segments = remember(msg.text) { splitChatSegments(msg.text) }
+                            segments.forEach { seg ->
+                                when (seg) {
+                                    is ChatSegment.Text ->
+                                        if (seg.text.isNotBlank()) {
+                                            AssistantMarkdownWithMath(
+                                                seg.text,
+                                                onImageClick = { viewerUrl = it }
+                                            )
+                                        }
+                                    is ChatSegment.Image -> {
+                                        Spacer(Modifier.height(8.dp))
+                                        ChatImageCard(
+                                            url = seg.url,
+                                            alt = seg.alt
+                                        ) { viewerUrl = it }
+                                        Spacer(Modifier.height(8.dp))
+                                    }
+                                }
+                            }
+                            // Bare image URLs (not markdown images): thumbnail
+                            // strip; tap opens the zoom/save viewer.
+                            val bareUrls = remember(msg.text) { extractBareImageUrls(msg.text) }
+                            if (bareUrls.isNotEmpty()) {
                                 Spacer(Modifier.height(8.dp))
-                                ChatImageStrip(urls = imageUrls) { viewerUrl = it }
+                                ChatImageStrip(urls = bareUrls) { viewerUrl = it }
                             }
                             viewerUrl?.let { fullUrl ->
                                 ImageViewerDialog(url = fullUrl) { viewerUrl = null }
