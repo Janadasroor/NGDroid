@@ -127,3 +127,72 @@ class ApplyNetlistTool(private val bridge: SpiceAppBridge) : AgentTool {
         }
     }
 }
+
+/**
+ * Runs the simulation and returns a text report (status + logs + vector
+ * summary) the agent can explain and debug from. Accepts an optional
+ * netlist to apply first, so the model never has to ask-first:
+ * validate -> apply -> run_simulation -> explain, all in one turn.
+ * Pure arg parsing ([parseRunSimulationArgs]) is JVM-testable.
+ */
+class RunSimulationTool(
+    private val runReport: suspend (netlist: String?, timeoutMs: Long) -> String
+) : AgentTool {
+    override val name: String = "run_simulation"
+    override val description: String =
+        "Apply an optional netlist, run the simulation, and return status/logs/vector summary. " +
+            "Input JSON: {\"netlist\": \"...optional...\", \"timeout_ms\": 30000}. " +
+            "Call it directly after validate/apply when the user asks to run, simulate, " +
+            "explain results, or debug — never ask-first."
+    override val parametersJsonSchema: String =
+        """{"type":"object","properties":{"netlist":{"type":"string"},"timeout_ms":{"type":"integer"}},"required":[]}"""
+
+    override suspend fun execute(argsJson: String): String {
+        val (netlist, timeoutMs) = parseRunSimulationArgs(argsJson)
+        return try {
+            runReport(netlist, timeoutMs)
+        } catch (e: Exception) {
+            "ERROR: ${e.message}"
+        }
+    }
+}
+
+/** Parses run_simulation args. Pure; JVM-testable. */
+fun parseRunSimulationArgs(argsJson: String): Pair<String?, Long> {
+    val root = runCatching {
+        Json { ignoreUnknownKeys = true }.parseToJsonElement(argsJson).jsonObject
+    }.getOrNull() ?: return null to DEFAULT_RUN_TIMEOUT_MS
+    val netlist = root["netlist"]?.jsonPrimitive?.contentOrNull?.ifBlank { null }
+    val timeoutMs = root["timeout_ms"]?.jsonPrimitive?.contentOrNull
+        ?.toLongOrNull()?.coerceIn(1_000, 120_000) ?: DEFAULT_RUN_TIMEOUT_MS
+    return netlist to timeoutMs
+}
+
+const val DEFAULT_RUN_TIMEOUT_MS: Long = 30_000
+
+/**
+ * Formats a simulation report for the agent: status, error, recent logs,
+ * and per-vector summaries (name + points + min/max/last). Pure; JVM-testable.
+ */
+fun formatSimulationReport(
+    statusText: String,
+    hasError: Boolean,
+    errorMessage: String?,
+    logs: List<String>,
+    vectors: List<String>,
+    maxLogLines: Int = 40
+): String = buildString {
+    append("status: ").append(statusText.ifBlank { "unknown" })
+    if (hasError) append(" [ERROR]")
+    append("\n")
+    errorMessage?.takeIf { it.isNotBlank() }?.let { append("error: ").append(it.trim()).append("\n") }
+    val tail = logs.takeLast(maxLogLines)
+    if (tail.isNotEmpty()) {
+        append("logs:\n")
+        tail.forEach { append("- ").append(it.trim()).append("\n") }
+    }
+    if (vectors.isNotEmpty()) {
+        append("vectors:\n")
+        vectors.forEach { append("- ").append(it.trim()).append("\n") }
+    }
+}

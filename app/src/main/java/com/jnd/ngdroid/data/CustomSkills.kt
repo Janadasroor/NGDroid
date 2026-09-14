@@ -34,6 +34,7 @@ val BUILTIN_SKILLS: List<BuiltinSkill> = listOf(
     BuiltinSkill("validate_netlist", "Validate netlist", "SPICE syntax check before answers", "SPICE"),
     BuiltinSkill("netlist_template", "Netlist templates", "Starter RC/RLC/diode/BJT/opamp circuits", "SPICE"),
     BuiltinSkill("apply_netlist", "Apply to editor", "Send results to the editor/simulator", "SPICE"),
+    BuiltinSkill("run_simulation", "Run simulation", "Apply, run and return status/logs/vectors", "SPICE"),
     BuiltinSkill("web_search", "Web search", "Current facts via Brave or DuckDuckGo", "Web"),
     BuiltinSkill("fetch_url", "Read pages", "Fetch and summarize web pages", "Web"),
     BuiltinSkill("curl_fetch", "Curl fetch", "GET-only curl-style URL reads", "Web"),

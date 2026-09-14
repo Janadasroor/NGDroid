@@ -149,6 +149,9 @@ fun AssistantScreen(
     assistantViewModel: AssistantViewModel,
     onApplyNetlist: (String) -> Unit,
     onApplyAndRun: (String) -> Unit,
+    onSnapshot: () -> String = { "" },
+    onRunAndReport: suspend (String?, Long) -> String = { _, _ -> "Simulation started" },
+    onCurrentNetlist: () -> String = { "" },
     onNavigateToEditor: (() -> Unit)? = null,
     onNavigateToPlot: (() -> Unit)? = null,
     onNavigateToSettings: (() -> Unit)? = null
@@ -285,8 +288,11 @@ fun AssistantScreen(
         pendingBridge?.let { return it }
         val bridge = object : SimBridge {
             override fun applyNetlist(text: String) = onApplyNetlist(text)
-            override fun currentNetlist(): String = ""
-            override fun runSimulation() { /* explicit run via buttons */ }
+            override fun currentNetlist(): String = try { onCurrentNetlist() } catch (_: Exception) { "" }
+            override fun runSimulation() { onApplyAndRun("") }
+            override fun snapshot(): String = onSnapshot()
+            override suspend fun runAndReport(netlist: String?, timeoutMs: Long): String =
+                onRunAndReport(netlist, timeoutMs)
         }
         pendingBridge = bridge
         return bridge

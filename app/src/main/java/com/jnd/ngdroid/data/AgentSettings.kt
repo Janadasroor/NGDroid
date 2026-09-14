@@ -26,6 +26,7 @@ data class AgentSettings(
     val skillValidateNetlist: Boolean = true,
     val skillNetlistTemplate: Boolean = true,
     val skillApplyNetlist: Boolean = true,
+    val skillRunSimulation: Boolean = true,
     val skillWebSearch: Boolean = true,
     val skillFetchUrl: Boolean = true,
     val skillCurlFetch: Boolean = true,
@@ -55,6 +56,7 @@ data class AgentSettings(
         "validate_netlist" -> skillValidateNetlist
         "netlist_template" -> skillNetlistTemplate
         "apply_netlist" -> skillApplyNetlist
+        "run_simulation" -> skillRunSimulation
         "web_search" -> skillWebSearch
         "fetch_url" -> skillFetchUrl
         "curl_fetch" -> skillCurlFetch
@@ -68,6 +70,7 @@ data class AgentSettings(
         "validate_netlist" -> copy(skillValidateNetlist = enabled)
         "netlist_template" -> copy(skillNetlistTemplate = enabled)
         "apply_netlist" -> copy(skillApplyNetlist = enabled)
+        "run_simulation" -> copy(skillRunSimulation = enabled)
         "web_search" -> copy(skillWebSearch = enabled)
         "fetch_url" -> copy(skillFetchUrl = enabled)
         "curl_fetch" -> copy(skillCurlFetch = enabled)

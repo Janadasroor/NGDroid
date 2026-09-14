@@ -27,6 +27,7 @@ class AgentDataStore(private val context: Context) {
         val SKILL_VALIDATE = booleanPreferencesKey("skill_validate_netlist")
         val SKILL_TEMPLATE = booleanPreferencesKey("skill_netlist_template")
         val SKILL_APPLY = booleanPreferencesKey("skill_apply_netlist")
+        val SKILL_RUN = booleanPreferencesKey("skill_run_simulation")
         val SKILL_WEB = booleanPreferencesKey("skill_web_search")
         val SKILL_FETCH = booleanPreferencesKey("skill_fetch_url")
         val SKILL_CURL = booleanPreferencesKey("skill_curl_fetch")
@@ -58,6 +59,7 @@ class AgentDataStore(private val context: Context) {
             skillValidateNetlist = prefs[Keys.SKILL_VALIDATE] ?: true,
             skillNetlistTemplate = prefs[Keys.SKILL_TEMPLATE] ?: true,
             skillApplyNetlist = prefs[Keys.SKILL_APPLY] ?: true,
+            skillRunSimulation = prefs[Keys.SKILL_RUN] ?: true,
             skillWebSearch = prefs[Keys.SKILL_WEB] ?: true,
             skillFetchUrl = prefs[Keys.SKILL_FETCH] ?: true,
             skillCurlFetch = prefs[Keys.SKILL_CURL] ?: true,
@@ -118,6 +120,7 @@ class AgentDataStore(private val context: Context) {
                 "validate_netlist" -> it[Keys.SKILL_VALIDATE] = enabled
                 "netlist_template" -> it[Keys.SKILL_TEMPLATE] = enabled
                 "apply_netlist" -> it[Keys.SKILL_APPLY] = enabled
+                "run_simulation" -> it[Keys.SKILL_RUN] = enabled
                 "web_search" -> it[Keys.SKILL_WEB] = enabled
                 "fetch_url" -> it[Keys.SKILL_FETCH] = enabled
                 "curl_fetch" -> it[Keys.SKILL_CURL] = enabled
@@ -159,6 +162,7 @@ class AgentDataStore(private val context: Context) {
             it[Keys.SKILL_VALIDATE] = settings.skillValidateNetlist
             it[Keys.SKILL_TEMPLATE] = settings.skillNetlistTemplate
             it[Keys.SKILL_APPLY] = settings.skillApplyNetlist
+            it[Keys.SKILL_RUN] = settings.skillRunSimulation
             it[Keys.SKILL_WEB] = settings.skillWebSearch
             it[Keys.SKILL_FETCH] = settings.skillFetchUrl
             it[Keys.SKILL_CURL] = settings.skillCurlFetch
@@ -188,6 +192,7 @@ class AgentDataStore(private val context: Context) {
             it.remove(Keys.SKILL_VALIDATE)
             it.remove(Keys.SKILL_TEMPLATE)
             it.remove(Keys.SKILL_APPLY)
+            it.remove(Keys.SKILL_RUN)
             it.remove(Keys.SKILL_WEB)
             it.remove(Keys.SKILL_FETCH)
             it.remove(Keys.SKILL_CURL)

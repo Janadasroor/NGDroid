@@ -24,6 +24,7 @@ import com.jnd.ngdroid.agent.OpenRouterProvider
 import com.jnd.ngdroid.agent.OpenAiProvider
 import com.jnd.ngdroid.agent.ReadFileTool
 import com.jnd.ngdroid.agent.ReadSkillTool
+import com.jnd.ngdroid.agent.RunSimulationTool
 import com.jnd.ngdroid.data.AndroidAssistantFileStore
 import com.jnd.ngdroid.agent.SpiceAppBridge
 import com.jnd.ngdroid.agent.ValidateNetlistTool
@@ -67,6 +68,16 @@ interface SimBridge {
     fun applyNetlist(text: String)
     fun currentNetlist(): String
     fun runSimulation()
+    fun snapshot(): String = ""
+    suspend fun runAndReport(netlist: String?, timeoutMs: Long = 30000): String {
+        if (!netlist.isNullOrBlank()) {
+            try { applyNetlist(netlist) } catch (e: Exception) { return "ERROR: ${e.message}" }
+        }
+        return try {
+            runSimulation()
+            snapshot().ifBlank { "Simulation started" }
+        } catch (e: Exception) { "ERROR: ${e.message}" }
+    }
 }
 
 class AssistantViewModel(application: Application) : AndroidViewModel(application) {
@@ -913,6 +924,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     if (s.isSkillEnabled("validate_netlist")) register(ValidateNetlistTool())
                     if (s.isSkillEnabled("netlist_template")) register(GenerateNetlistTemplateTool())
                     if (s.isSkillEnabled("apply_netlist")) register(ApplyNetlistTool(bridge))
+                    if (s.isSkillEnabled("run_simulation")) register(
+                        RunSimulationTool { netlist, timeoutMs -> simBridge.runAndReport(netlist, timeoutMs) }
+                    )
                     if (s.isSkillEnabled("web_search")) register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
                     if (s.isSkillEnabled("image_search")) register(ImageSearchTool(searchKeyProvider = { s.searchApiKey }))
                     if (s.isSkillEnabled("fetch_url")) register(FetchUrlTool())

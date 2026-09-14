@@ -9,7 +9,7 @@ data class AgentConfig(
 /** Tools whose use promises deliverables (netlist, links, images, files) in the reply. */
 private val contentToolNames = setOf(
     "web_search", "fetch_url", "curl_fetch", "image_search",
-    "netlist_template", "validate_netlist", "apply_netlist",
+    "netlist_template", "validate_netlist", "apply_netlist", "run_simulation",
     "download_file", "read_file", "list_files", "read_skill"
 )
 

@@ -174,6 +174,11 @@ fun MainScreen(
                             if (net.isNotEmpty()) simulationViewModel.updateNetlist(net)
                             simulationViewModel.runSimulation()
                         },
+                        onSnapshot = { simulationViewModel.snapshotReport() },
+                        onRunAndReport = { net, timeoutMs ->
+                            simulationViewModel.runAndReport(net, timeoutMs)
+                        },
+                        onCurrentNetlist = { simulationViewModel.currentNetlistText() },
                         onNavigateToEditor = { selectedTab = AppTab.EDITOR },
                         onNavigateToPlot = { selectedTab = AppTab.PLOT },
                         onNavigateToSettings = { selectedTab = AppTab.SETTINGS }

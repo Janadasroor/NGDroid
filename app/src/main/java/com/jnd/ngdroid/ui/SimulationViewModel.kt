@@ -448,4 +448,63 @@ class SimulationViewModel(
     fun toggleVectorActive(vecName: String) = repository.toggleVectorActive(vecName)
     fun clearLogs() = repository.clearLogs()
     fun restoreLogs(logs: List<String>) = repository.restoreLogs(logs)
+
+    /**
+     * Agent path: optionally apply [netlist], run, wait until settled
+     * (or [timeoutMs]), then return status/logs/vector summary via
+     * [com.jnd.ngdroid.agent.formatSimulationReport] for explain/debug.
+     * Must be called from a background dispatcher (tool worker thread).
+     */
+    suspend fun runAndReport(netlist: String?, timeoutMs: Long = 30_000): String {
+        return try {
+            if (!netlist.isNullOrBlank()) updateNetlist(netlist)
+            runSimulation()
+            val timeout = timeoutMs.coerceIn(1_000, 120_000)
+            val deadline = android.os.SystemClock.elapsedRealtime() + timeout
+            // Give runSimulation()'s IO coroutine a moment to flip isSimulating on.
+            kotlinx.coroutines.delay(300)
+            var waited = 0L
+            while (repository.state.value.isSimulating &&
+                android.os.SystemClock.elapsedRealtime() < deadline
+            ) {
+                kotlinx.coroutines.delay(200)
+                waited += 200
+                // Cap log spam: state polling is cheap (StateFlow read).
+                if (waited > timeout) break
+            }
+            snapshotReport()
+        } catch (e: Exception) {
+            "ERROR: ${e.message}"
+        }
+    }
+
+    /** Sync snapshot of current sim state (status/logs/vectors). Pure read. */
+    fun snapshotReport(): String {
+        val s = repository.state.value
+        val plot = s.currentPlot
+        val vectors = mutableListOf<String>()
+        plot?.scaleVector?.let { vectors.add(summarizeVector(it.name, it.values)) }
+        plot?.dataVectors?.forEach { vectors.add(summarizeVector(it.name, it.values)) }
+        return com.jnd.ngdroid.agent.formatSimulationReport(
+            statusText = s.statusText,
+            hasError = s.hasError,
+            errorMessage = s.errorMessage,
+            logs = s.logs,
+            vectors = vectors
+        )
+    }
+
+    fun currentNetlistText(): String = repository.netlistText.value
+}
+
+/** One-line per-vector summary: name + points + min/max/last. Pure. */
+internal fun summarizeVector(name: String, values: List<Double>): String {
+    if (values.isEmpty()) return "$name: 0 points"
+    var min = values[0]
+    var max = values[0]
+    for (v in values) {
+        if (v < min) min = v
+        if (v > max) max = v
+    }
+    return "$name: ${values.size} pts min=$min max=$max last=${values.last()}"
 }
