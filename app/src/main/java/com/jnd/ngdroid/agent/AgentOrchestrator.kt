@@ -10,7 +10,7 @@ data class AgentConfig(
 private val contentToolNames = setOf(
     "web_search", "fetch_url", "curl_fetch", "image_search",
     "netlist_template", "validate_netlist", "apply_netlist",
-    "download_file", "read_file", "list_files"
+    "download_file", "read_file", "list_files", "read_skill"
 )
 
 private val promisePhrases = listOf(
@@ -80,7 +80,9 @@ class AgentOrchestrator(
         history: List<ChatMessage> = emptyList(),
         onEvent: (AgentEvent) -> Unit = {},
         /** Maps raw provider failure text to user-visible text (default: passthrough). */
-        errorFormatter: (String) -> String = { it }
+        errorFormatter: (String) -> String = { it },
+        /** Base system prompt; custom skills are pre-appended by the caller. */
+        systemPrompt: String = SPICE_SYSTEM
     ): String {
         val conversation = history.toMutableList()
         conversation.add(ChatMessage(ChatRole.USER, userMessage))
@@ -95,7 +97,7 @@ class AgentOrchestrator(
         while (iterations < config.maxIterations + stubRetries) {
             iterations++
             val req = LlmRequest(
-                systemPrompt = SPICE_SYSTEM,
+                systemPrompt = systemPrompt,
                 messages = conversation.toList(),
                 tools = llmTools
             )
@@ -159,7 +161,7 @@ class AgentOrchestrator(
 
         return try {
             val finalReq = LlmRequest(
-                systemPrompt = "$SPICE_SYSTEM\n\nYou have reached the tool-call limit. " +
+                systemPrompt = "$systemPrompt\n\nYou have reached the tool-call limit. " +
                     "Provide your best final answer now as plain text with no further tool calls.",
                 messages = conversation.toList(),
                 tools = emptyList()

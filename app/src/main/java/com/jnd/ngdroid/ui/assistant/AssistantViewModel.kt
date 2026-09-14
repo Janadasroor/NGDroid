@@ -19,6 +19,7 @@ import com.jnd.ngdroid.agent.ImageSearchTool
 import com.jnd.ngdroid.agent.HttpClients
 import com.jnd.ngdroid.agent.MapToolRegistry
 import com.jnd.ngdroid.agent.ReadFileTool
+import com.jnd.ngdroid.agent.ReadSkillTool
 import com.jnd.ngdroid.data.AndroidAssistantFileStore
 import com.jnd.ngdroid.agent.SpiceAppBridge
 import com.jnd.ngdroid.agent.ValidateNetlistTool
@@ -29,6 +30,8 @@ import com.jnd.ngdroid.data.AgentProvider
 import com.jnd.ngdroid.data.AgentSettings
 import com.jnd.ngdroid.data.AndroidUploadStore
 import com.jnd.ngdroid.data.ChatHistoryStore
+import com.jnd.ngdroid.data.CustomSkill
+import com.jnd.ngdroid.data.newCustomSkill
 import com.jnd.ngdroid.data.StoredAttachment
 import com.jnd.ngdroid.data.describeUploads
 import com.jnd.ngdroid.data.ChatSession
@@ -452,6 +455,88 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Built-in skill toggle (maps to one agent tool). */
+    fun updateSkill(id: String, enabled: Boolean) {
+        _settings.value = _settings.value.withSkill(id, enabled)
+        // withSkill returns same instance for unknown ids; still persist known ones.
+        viewModelScope.launch {
+            try { store.setSkill(id, enabled) } catch (_: Exception) { }
+        }
+    }
+
+    fun updateMaxIterations(v: Int) {
+        val coerced = v.coerceIn(4, 20)
+        _settings.value = _settings.value.copy(maxIterations = coerced)
+        viewModelScope.launch {
+            try { store.setMaxIterations(coerced) } catch (_: Exception) { }
+        }
+    }
+
+    fun updateStubRetries(v: Int) {
+        val coerced = v.coerceIn(0, 3)
+        _settings.value = _settings.value.copy(stubRetries = coerced)
+        viewModelScope.launch {
+            try { store.setStubRetries(coerced) } catch (_: Exception) { }
+        }
+    }
+
+    fun updateAutoPick(v: Boolean) {
+        _settings.value = _settings.value.copy(autoPickFreeModel = v)
+        viewModelScope.launch {
+            try { store.setAutoPick(v) } catch (_: Exception) { }
+        }
+    }
+
+    /** Create a user skill; returns null when validation fails (caller shows the error). */
+    fun addCustomSkill(name: String, description: String, instructions: String): String? {
+        if (com.jnd.ngdroid.data.validateCustomSkill(name, description, instructions) != null) return null
+        if (_settings.value.customSkills.size >= 50) return null
+        val skill = newCustomSkill(name, description, instructions)
+        _settings.value = _settings.value.copy(customSkills = _settings.value.customSkills + skill)
+        viewModelScope.launch {
+            try { store.setCustomSkills(_settings.value.customSkills) } catch (_: Exception) { }
+        }
+        return skill.id
+    }
+
+    /** Back-compat: description derived from instructions head. */
+    fun addCustomSkill(name: String, instructions: String): String? =
+        addCustomSkill(name, instructions.trim().take(200), instructions)
+
+    fun updateCustomSkill(id: String, name: String, description: String, instructions: String): Boolean {
+        if (com.jnd.ngdroid.data.validateCustomSkill(name, description, instructions) != null) return false
+        val list = _settings.value.customSkills.map {
+            if (it.id == id) it.copy(
+                name = name.trim().take(40),
+                description = description.trim().take(500),
+                instructions = instructions.trim().take(4000)
+            ) else it
+        }
+        _settings.value = _settings.value.copy(customSkills = list)
+        viewModelScope.launch {
+            try { store.setCustomSkills(list) } catch (_: Exception) { }
+        }
+        return true
+    }
+
+    fun deleteCustomSkill(id: String) {
+        val list = _settings.value.customSkills.filterNot { it.id == id }
+        _settings.value = _settings.value.copy(customSkills = list)
+        viewModelScope.launch {
+            try { store.setCustomSkills(list) } catch (_: Exception) { }
+        }
+    }
+
+    fun setCustomSkillEnabled(id: String, enabled: Boolean) {
+        val list = _settings.value.customSkills.map {
+            if (it.id == id) it.copy(enabled = enabled) else it
+        }
+        _settings.value = _settings.value.copy(customSkills = list)
+        viewModelScope.launch {
+            try { store.setCustomSkills(list) } catch (_: Exception) { }
+        }
+    }
+
     /** User-picked model id from the live catalog. Blank clears the selection. */
     fun selectModel(id: String) {
         val clean = id.trim()
@@ -522,7 +607,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 } else if (settingsLoaded) {
                     // Auto-pick: first working free model (Zen) when the user chose nothing yet.
                     if (current.selectedModel.isBlank() && free.isNotEmpty()) {
-                        ZenProvider.autoDefault(free)?.let { selectModel(it) }
+                        if (current.autoPickFreeModel) {
+                            ZenProvider.autoDefault(free)?.let { selectModel(it) }
+                        }
                     } else if (current.selectedModel.isNotBlank() && current.selectedModel !in fetched) {
                         // Stored selection vanished from the catalog — clear it to re-pick.
                         selectModel("")
@@ -709,18 +796,31 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     } catch (e: Exception) { "ERROR: ${e.message}" }
                 }
                 val fileStore = AndroidAssistantFileStore(getApplication())
+                val customSnapshot = s.enabledCustomSkills()
                 val registry = MapToolRegistry().apply {
-                    register(ValidateNetlistTool())
-                    register(GenerateNetlistTemplateTool())
-                    register(ApplyNetlistTool(bridge))
-                    register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
-                    register(ImageSearchTool(searchKeyProvider = { s.searchApiKey }))
-                    register(FetchUrlTool())
-                    register(CurlFetchTool())
-                    register(DownloadFileTool(HttpClients.okHttpBytes(), fileStore))
-                    register(ReadFileTool(fileStore))
+                    if (s.isSkillEnabled("validate_netlist")) register(ValidateNetlistTool())
+                    if (s.isSkillEnabled("netlist_template")) register(GenerateNetlistTemplateTool())
+                    if (s.isSkillEnabled("apply_netlist")) register(ApplyNetlistTool(bridge))
+                    if (s.isSkillEnabled("web_search")) register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
+                    if (s.isSkillEnabled("image_search")) register(ImageSearchTool(searchKeyProvider = { s.searchApiKey }))
+                    if (s.isSkillEnabled("fetch_url")) register(FetchUrlTool())
+                    if (s.isSkillEnabled("curl_fetch")) register(CurlFetchTool())
+                    if (s.isSkillEnabled("download_file")) register(DownloadFileTool(HttpClients.okHttpBytes(), fileStore))
+                    if (s.isSkillEnabled("read_file")) register(ReadFileTool(fileStore))
+                    if (customSnapshot.isNotEmpty()) register(ReadSkillTool { customSnapshot })
                 }
-                val agent = AgentOrchestrator(AgentConfig(maxIterations = 12), provider, registry)
+                val agent = AgentOrchestrator(
+                    AgentConfig(
+                        maxIterations = s.coercedMaxIterations(),
+                        maxStubRetries = s.coercedStubRetries()
+                    ),
+                    provider,
+                    registry
+                )
+                val systemPrompt = com.jnd.ngdroid.data.skillCatalogPrompt(
+                    com.jnd.ngdroid.agent.SPICE_SYSTEM,
+                    customSnapshot
+                )
                 // Raw provider failures become short friendly sentences (no JSON/URLs).
                 // Pending tool args let observations embed their source URL/counts
                 // (fetch reads, search totals) for the thinking summary.
@@ -749,7 +849,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                         is AgentEvent.Message -> { /* final text handled via return value */ }
                     }
                     },
-                    errorFormatter = { AgentErrors.format(it, model) }
+                    errorFormatter = { AgentErrors.format(it, model) },
+                    systemPrompt = systemPrompt
                 )
                 rt.history.add(ChatMessage(ChatRole.USER, enriched))
                 rt.history.add(ChatMessage(ChatRole.ASSISTANT, answer))

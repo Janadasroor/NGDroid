@@ -187,6 +187,10 @@ fun toolCallLabel(toolName: String, argsJson: String = ""): String {
             if (name.isNotBlank()) "Reading $name…" else "Listing files…"
         }
         "list_files" -> "Listing files…"
+        "read_skill" -> {
+            val name = Regex(""""skill"\s*:\s*"([^"]+)"""").find(argsJson)?.groupValues?.get(1).orEmpty()
+            if (name.isNotBlank()) "Loading skill “${name.take(32)}”…" else "Loading skill…"
+        }
         "validate_netlist" -> "Validating…"
         "netlist_template" -> "Loading template…"
         "apply_netlist" -> "Applying…"
