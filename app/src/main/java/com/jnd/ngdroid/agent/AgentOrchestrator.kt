@@ -50,6 +50,37 @@ fun isPromiseWithoutPayload(text: String): Boolean {
     return lower.endsWith(":")
 }
 
+/**
+ * Repairs a resumed conversation so strict providers accept it: merges
+ * consecutive same-role turns (text joined, tool calls and images unioned)
+ * and drops leading orphan TOOL observations. TOOL turns never merge —
+ * each observation keeps its own tool_call_id for tool_use/tool_result
+ * pairing (Anthropic rejects mismatched pairs). Pure; JVM-testable.
+ */
+fun repairHistory(history: List<ChatMessage>): List<ChatMessage> {
+    val out = mutableListOf<ChatMessage>()
+    for (m in history) {
+        if (m.role == ChatRole.TOOL && out.isEmpty()) continue
+        val last = out.lastOrNull()
+        if (last != null && last.role == m.role && m.role != ChatRole.TOOL) {
+            val text = when {
+                last.content.isBlank() -> m.content
+                m.content.isBlank() -> last.content
+                else -> "${last.content}\n\n${m.content}"
+            }
+            out[out.lastIndex] = last.copy(
+                content = text,
+                toolCalls = last.toolCalls + m.toolCalls,
+                toolCallId = last.toolCallId ?: m.toolCallId,
+                images = last.images + m.images
+            )
+        } else {
+            out.add(m)
+        }
+    }
+    return out
+}
+
 /** Nudge appended as a user turn when the guard fires. */
 const val STUB_RETRY_NUDGE: String =
     "Your last reply promises results but contains no netlist code block, " +
@@ -86,7 +117,7 @@ class AgentOrchestrator(
         /** Vision payload for this turn (raster attachments as base64). History stays text-only. */
         userImages: List<LlmImage> = emptyList()
     ): String {
-        val conversation = history.toMutableList()
+        val conversation = repairHistory(history).toMutableList()
         conversation.add(ChatMessage(ChatRole.USER, userMessage, images = userImages))
         onEvent(AgentEvent.Message(userMessage))
 
