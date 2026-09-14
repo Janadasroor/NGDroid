@@ -171,5 +171,21 @@ fun chatMarkdownColors(): MarkdownColors {
     )
 }
 
+/**
+ * Error-tone chat colors: same surfaces as [chatMarkdownColors] but the
+ * prose renders in `scheme.error` so failed turns read as failures.
+ */
+@Composable
+fun chatMarkdownErrorColors(): MarkdownColors {
+    val scheme = MaterialTheme.colorScheme
+    return markdownColor(
+        text = scheme.error,
+        codeBackground = scheme.surfaceContainerHigh,
+        inlineCodeBackground = scheme.surfaceContainerHighest,
+        dividerColor = scheme.outlineVariant,
+        tableBackground = scheme.surfaceContainerLow
+    )
+}
+
 /** Fill-width modifier shared by every prose Markdown block in chat. */
 fun chatMarkdownModifier(): Modifier = Modifier.fillMaxWidth()

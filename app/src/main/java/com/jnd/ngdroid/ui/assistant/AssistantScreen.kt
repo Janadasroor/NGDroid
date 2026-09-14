@@ -551,14 +551,18 @@ fun AssistantScreen(
                         ChatRoleUi.ASSISTANT -> Column(
                             modifier = Modifier.fillMaxWidth()
                         ) {
+                            // Failed turns (missing key/model, quota, offline…)
+                            // render in the error tone so they read as failures.
+                            val msgIsError = remember(msg.text) { isChatError(msg.text) }
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    "Response",
+                                    if (msgIsError) "Response failed" else "Response",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (msgIsError) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.weight(1f)
                                 )
                                 if (!isThinking) {
@@ -599,7 +603,8 @@ fun AssistantScreen(
                                         if (seg.text.isNotBlank()) {
                                             AssistantMarkdownWithMath(
                                                 seg.text,
-                                                onImageClick = { viewerUrl = it }
+                                                onImageClick = { viewerUrl = it },
+                                                error = msgIsError
                                             )
                                         }
                                     is ChatSegment.Image -> {

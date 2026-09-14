@@ -54,13 +54,14 @@ import org.intellij.markdown.ast.ASTNode
 @Composable
 fun AssistantMarkdownWithMath(
     text: String,
-    onImageClick: ((String) -> Unit)? = null
+    onImageClick: ((String) -> Unit)? = null,
+    error: Boolean = false
 ) {
     val normalized = remember(text) {
         normalizeMarkdownForChat(stripMarkdownImagesForDisplay(text))
     }
     val segments = remember(normalized) { parseDocSegments(normalized) }
-    val colors = chatMarkdownColors()
+    val colors = if (error) chatMarkdownErrorColors() else chatMarkdownColors()
     val typography = chatMarkdownTypography()
     // Inline images have no click API in mikepenz 0.35.0: override the image
     // component with a clickable wrapper that opens the full viewer.

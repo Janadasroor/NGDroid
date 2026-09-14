@@ -400,6 +400,55 @@ fun toolStepDetail(text: String, maxChars: Int = 140): String {
     return ""
 }
 
+/**
+ * True when a finished ASSISTANT bubble is an error notice, not an answer,
+ * so the chat body can render it in the error tone (red) instead of the
+ * normal black text. Matches only the app's own guard/error templates —
+ * never generic words like "error", so a normal SPICE explanation that
+ * mentions errors stays black. Pure.
+ */
+fun isChatError(text: String): Boolean {
+    val t = text.trim()
+    if (t.isEmpty()) return false
+    val lower = t.lowercase()
+    if (t.startsWith("ERROR") || t.startsWith("INVALID")) return true
+    return when {
+        lower.startsWith("no model selected yet") -> true
+        lower.startsWith("this model needs your") -> true
+        lower.startsWith("add your ") && "api key in settings first" in lower -> true
+        lower.startsWith("you're offline") || lower.startsWith("you are offline") -> true
+        lower.startsWith("no connection.") -> true
+        lower.startsWith("free-tier limit reached.") -> true
+        lower.startsWith("session handshake failed.") -> true
+        lower.startsWith("the provider is having issues") -> true
+        lower.startsWith("openai error:") -> true
+        // Raw provider error bodies (no "OpenAI error:" prefix — e.g. quota
+        // JSON surfaced via AgentErrors.extractMessage).
+        "no credits remaining" in lower -> true
+        "current quota" in lower -> true
+        "insufficient_quota" in lower || "insufficient quota" in lower -> true
+        "credit_balance" in lower -> true
+        "add credits" in lower -> true
+        "rate limit" in lower || "ratelimit" in lower || "too many requests" in lower -> true
+        "invalid api key" in lower || "incorrect api key" in lower || "invalid_api_key" in lower -> true
+        "unauthorized" in lower || "authentication failed" in lower -> true
+        "model is unavailable" in lower || "model_not_found" in lower -> true
+        "context_length_exceeded" in lower || "maximum context length" in lower -> true
+        "failed to connect" in lower || "unable to resolve host" in lower || "timed out" in lower -> true
+        lower.startsWith("provider returned no models.") -> true
+        lower.startsWith("saved model is no longer offered") -> true
+        "failed to answer. retry" in lower -> true
+        "is temporarily unavailable on the free tier" in lower -> true
+        "needs your api key (settings" in lower -> true
+        "isn't supported on this route" in lower -> true
+        "pick another free model" in lower -> true
+        "pick a free model" in lower -> true
+        "pick another model from the menu above" in lower -> true
+        "pick a new one" in lower -> true
+        else -> false
+    }
+}
+
 /** True when a SYSTEM line reports a failure (red timeline tone). Pure. */
 fun isErrorStep(text: String): Boolean {
     val t = text.trim()

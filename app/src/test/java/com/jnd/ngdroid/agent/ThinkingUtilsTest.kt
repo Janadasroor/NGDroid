@@ -8,6 +8,7 @@ import com.jnd.ngdroid.ui.assistant.hostOfUrl
 import com.jnd.ngdroid.ui.assistant.SearchSummary
 import com.jnd.ngdroid.ui.assistant.argsQuery
 import com.jnd.ngdroid.ui.assistant.humanizeTool
+import com.jnd.ngdroid.ui.assistant.isChatError
 import com.jnd.ngdroid.ui.assistant.isErrorStep
 import com.jnd.ngdroid.ui.assistant.liveThinkingSteps
 import com.jnd.ngdroid.ui.assistant.liveThinkingTitle
@@ -234,6 +235,23 @@ class ThinkingUtilsTest {
         assertTrue(!isErrorStep("web_search “q”: found 5 pages (ti.com): 1. A"))
         assertTrue(!isErrorStep("Searching “tl494”…"))
         assertTrue(!isErrorStep("validate_netlist: VALID"))
+    }
+
+    @Test
+    fun chatErrorsRenderRedOnly() {
+        assertTrue(isChatError("No model selected yet. Open the model menu above and pick one."))
+        assertTrue(isChatError("This model needs your OpenAI API key. Open Settings — or pick a FREE model."))
+        assertTrue(isChatError("You're offline. Reconnect, then send again — nothing was sent."))
+        assertTrue(isChatError("No connection. Check your internet and retry."))
+        assertTrue(isChatError("Free-tier limit reached. Wait a minute, then retry — or pick another free model."))
+        assertTrue(isChatError("OpenAI error: You exceeded your current quota."))
+        assertTrue(isChatError("You have no credits remaining. Add credits to continue using the API at https://platform.openai.com/settings/organization/billing/."))
+        assertTrue(isChatError("insufficient_quota: credit_balance_exhausted"))
+        assertTrue(isChatError("Rate limit reached for gpt-4o-mini."))
+        assertTrue(isChatError("gpt-4.1-nano is temporarily unavailable on the free tier. Open the model menu."))
+        assertTrue(!isChatError("Here is your RC low-pass netlist with 1kHz cutoff."))
+        assertTrue(!isChatError("The diode rectifier failed to converge, so I added a series resistor."))
+        assertTrue(!isChatError(""))
     }
 
     @Test
