@@ -714,6 +714,33 @@ fun AssistantScreen(
             }
         }
 
+        // ---- Follow-ups: one-tap next steps after a finished answer ----
+        val lastVisible = visibleMessages.lastOrNull()
+        if (messages.isNotEmpty() && !isThinking &&
+            lastVisible?.role == ChatRoleUi.ASSISTANT && !isChatError(lastVisible.text)
+        ) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = sizes.contentPadding, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    "Simulate it" to "Simulate the current netlist and summarize the results",
+                    "Explain results" to "Explain the last simulation results in plain language",
+                    "Sweep values" to "Propose a component sweep to explore around the current design",
+                    "Check convergence" to "Check the netlist for convergence risks and suggest fixes"
+                ).forEach { (label, prompt) ->
+                    AssistChip(
+                        onClick = { send(prompt) },
+                        label = { Text(label) },
+                        shape = LocalButtonShape.current
+                    )
+                }
+            }
+        }
+
         // ---- Input bar: shaped prompt widget with image/doc uploads ----
         Surface(
             tonalElevation = 2.dp,
