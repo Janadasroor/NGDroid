@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -39,9 +40,12 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -67,6 +71,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -98,9 +103,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import kotlinx.coroutines.launch
 import android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -121,6 +130,18 @@ import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import com.jnd.ngdroid.ui.theme.LocalDialogShape
 import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
+import java.io.File
+
+/** MIME filter for the Documents attach option (images go through Photos). */
+private val DOCUMENT_MIMES = arrayOf(
+    "application/pdf",
+    "text/*",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/octet-stream"
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -160,14 +181,12 @@ fun AssistantScreen(
 
     // Storage picker -> app-private uploads copy so the agent can read the
     // files without holding SAF permissions. Capped at 4 per message, 15 MB each.
-    val pickFiles = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        if (uris.isNullOrEmpty()) return@rememberLauncherForActivityResult
+    fun addPickedUris(uris: List<Uri>) {
+        if (uris.isEmpty()) return
         val remaining = MAX_ATTACHMENTS_PER_MESSAGE - pendingAttachments.size
         if (remaining <= 0) {
             Toast.makeText(context, "Max $MAX_ATTACHMENTS_PER_MESSAGE files per message", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
+            return
         }
         if (uris.size > remaining) {
             Toast.makeText(context, "Only $remaining more file(s) allowed (max $MAX_ATTACHMENTS_PER_MESSAGE)", Toast.LENGTH_SHORT).show()
@@ -192,6 +211,56 @@ fun AssistantScreen(
         }
         if (error != null) {
             Toast.makeText(context, error, Toast.LENGTH_LONG).show()
+        }
+    }
+    val pickPhotos = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (!uris.isNullOrEmpty()) addPickedUris(uris)
+    }
+    val pickDocs = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (!uris.isNullOrEmpty()) addPickedUris(uris)
+    }
+    var showAttachSheet by remember { mutableStateOf(false) }
+    var cameraOutFile by remember { mutableStateOf<File?>(null) }
+    var cameraOutUri by remember { mutableStateOf<Uri?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture()
+    ) { ok ->
+        val file = cameraOutFile
+        val uri = cameraOutUri
+        cameraOutFile = null
+        cameraOutUri = null
+        if (ok && uri != null) {
+            // Already inside uploads: register the copy, drop the temp original.
+            addPickedUris(listOf(uri))
+            runCatching { file?.delete() }
+        } else {
+            runCatching { file?.delete() }
+            if (!ok) Toast.makeText(context, "Photo discarded", Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun launchCamera() {
+        if (pendingAttachments.size >= MAX_ATTACHMENTS_PER_MESSAGE) {
+            Toast.makeText(context, "Max $MAX_ATTACHMENTS_PER_MESSAGE files per message", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val result = runCatching {
+            val dir = File(appContext.filesDir, "uploads").apply { mkdirs() }
+            val file = File(dir, "IMG_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(
+                appContext, "${appContext.packageName}.fileprovider", file
+            )
+            cameraOutFile = file
+            cameraOutUri = uri
+            takePhoto.launch(uri)
+        }
+        if (result.isFailure) {
+            cameraOutFile = null
+            cameraOutUri = null
+            Toast.makeText(context, "No camera app found", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -678,7 +747,7 @@ fun AssistantScreen(
                     verticalAlignment = Alignment.Bottom
                 ) {
                     IconButton(
-                        onClick = { pickFiles.launch(arrayOf("*/*")) },
+                        onClick = { showAttachSheet = true },
                         enabled = !isThinking && pendingAttachments.size < MAX_ATTACHMENTS_PER_MESSAGE,
                         modifier = Modifier.size(sizes.inputButton)
                     ) {
@@ -748,6 +817,50 @@ fun AssistantScreen(
             assistantViewModel = assistantViewModel,
             onDismiss = { showModels = false }
         )
+    }
+
+    if (showAttachSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showAttachSheet = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Attach",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                )
+                AttachOptionRow(
+                    icon = { Icon(Icons.Default.PhotoCamera, contentDescription = null) },
+                    title = "Camera",
+                    subtitle = "Take a photo",
+                    onClick = {
+                        showAttachSheet = false
+                        launchCamera()
+                    }
+                )
+                AttachOptionRow(
+                    icon = { Icon(Icons.Default.Image, contentDescription = null) },
+                    title = "Photos",
+                    subtitle = "Choose images from the gallery",
+                    onClick = {
+                        showAttachSheet = false
+                        pickPhotos.launch(arrayOf("image/*"))
+                    }
+                )
+                AttachOptionRow(
+                    icon = { Icon(Icons.Default.Description, contentDescription = null) },
+                    title = "Documents",
+                    subtitle = "PDFs, text and office files",
+                    onClick = {
+                        showAttachSheet = false
+                        pickDocs.launch(DOCUMENT_MIMES)
+                    }
+                )
+                Spacer(Modifier.height(28.dp))
+            }
+        }
     }
 
     if (deleteTargetId != null) {
@@ -858,6 +971,41 @@ private fun PendingAttachmentChip(
 }
 
 @Composable
+private fun AttachOptionRow(
+    icon: @Composable () -> Unit,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(44.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                icon()
+            }
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
 private fun AttachmentRefRow(attachments: List<StoredAttachment>) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -923,7 +1071,9 @@ private fun UserAttachmentList(
 }
 
 /**
- * Model dropdown fed ONLY by the live provider catalog ([models]).
+ * Professional model picker fed ONLY by the live provider catalog ([models]).
+ * Pill button (provider icon + name + FREE badge) opens a menu with its own
+ * search engine, ALL/FREE filter chips, and free-first ranked rows.
  * No hardcoded entries: empty catalog -> "Select model" placeholder that opens the browser.
  */
 @Composable
@@ -939,6 +1089,17 @@ private fun ModelDropdownRow(
 ) {
     val selected = settings.selectedModel.trim()
     val hasSelection = selected.isNotEmpty()
+    val isZen = settings.provider == AgentProvider.OPENCODE_ZEN
+    val selectedFree = hasSelection && freeModels.any { it == selected }
+    val freeSet = remember(freeModels) { freeModels.toSet() }
+    var menuQuery by remember(menuExpanded) { mutableStateOf("") }
+    var menuTier by remember(menuExpanded) { mutableStateOf(ModelTierFilter.ALL) }
+    val menuVisible = remember(models, menuQuery, menuTier, freeSet) {
+        searchModelCatalog(models, menuQuery, menuTier, freeSet).take(12)
+    }
+    val menuCount = remember(models, menuQuery, menuTier, freeSet) {
+        searchModelCatalog(models, menuQuery, menuTier, freeSet).size
+    }
     val label = when {
         hasSelection -> selected
         modelsLoading -> "Loading models…"
@@ -946,42 +1107,101 @@ private fun ModelDropdownRow(
         else -> "Select model (${models.size})"
     }
     Box {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { onMenuExpandedChange(!menuExpanded) }
-                .padding(vertical = 2.dp)
+        Surface(
+            onClick = { onMenuExpandedChange(!menuExpanded) },
+            shape = RoundedCornerShape(16.dp),
+            tonalElevation = 2.dp,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (hasSelection) MaterialTheme.colorScheme.onSurface
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false)
-            )
-            if (modelsLoading) {
-                Spacer(Modifier.width(4.dp))
-                CircularProgressIndicator(
-                    modifier = Modifier.size(14.dp),
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Icon(
-                    Icons.Default.ExpandMore,
-                    contentDescription = "Select model",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (isZen) Icons.Default.Cloud else Icons.Default.Memory,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        buildString {
+                            append(settings.provider.displayName.uppercase())
+                            append(" • MODEL")
+                            if (freeModels.isNotEmpty()) append(" • ${freeModels.size} FREE")
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = if (hasSelection) FontFamily.Monospace else null,
+                            color = if (hasSelection) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        if (selectedFree) {
+                            Spacer(Modifier.width(6.dp))
+                            AssistChip(
+                                onClick = {},
+                                enabled = false,
+                                label = {
+                                    Text(
+                                        "FREE",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Bolt,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                },
+                                modifier = Modifier.height(24.dp)
+                            )
+                        }
+                    }
+                }
+                if (modelsLoading) {
+                    Spacer(Modifier.width(8.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.ExpandMore,
+                        contentDescription = "Select model",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
         DropdownMenu(
             expanded = menuExpanded,
             onDismissRequest = { onMenuExpandedChange(false) },
-            modifier = Modifier.heightIn(max = 320.dp)
+            modifier = Modifier.heightIn(max = 420.dp)
         ) {
             if (models.isEmpty() && !modelsLoading) {
                 DropdownMenuItem(
@@ -989,45 +1209,99 @@ private fun ModelDropdownRow(
                     onClick = onBrowseAll
                 )
             } else {
-                if (freeModels.isNotEmpty()) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "FREE (${freeModels.size})",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        },
-                        enabled = false,
-                        onClick = {}
+                OutlinedTextField(
+                    value = menuQuery,
+                    onValueChange = { menuQuery = it },
+                    placeholder = { Text("Search ${models.size} models…") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = {
+                        if (menuQuery.isNotEmpty()) {
+                            IconButton(onClick = { menuQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
+                ) {
+                    FilterChip(
+                        selected = menuTier == ModelTierFilter.ALL,
+                        onClick = { menuTier = ModelTierFilter.ALL },
+                        label = { Text("All ${models.size}") }
+                    )
+                    FilterChip(
+                        selected = menuTier == ModelTierFilter.FREE,
+                        onClick = { menuTier = ModelTierFilter.FREE },
+                        label = { Text("Free ${freeModels.size}") },
+                        leadingIcon = if (menuTier == ModelTierFilter.FREE) {
+                            { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
+                        } else null
                     )
                 }
-                models.take(14).forEach { id ->
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                menuVisible.forEach { id ->
                     val isSelected = selected == id
-                    val isFree = freeModels.any { it == id }
+                    val isFree = freeSet.any { it == id }
                     DropdownMenuItem(
                         text = {
-                            Column {
-                                Text(
-                                    id,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(
+                                    shape = CircleShape,
                                     color = if (isSelected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    buildString {
-                                        append(settings.provider.displayName)
-                                        if (isFree) append(" • FREE")
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isFree) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                                    else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            modelFamily(id).take(1).uppercase(),
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        id,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        fontFamily = FontFamily.Monospace,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        buildString {
+                                            append(modelFamily(id))
+                                            append(" • ${settings.provider.displayName}")
+                                            if (isFree) append(" • FREE")
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isFree) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (isFree) {
+                                    Spacer(Modifier.width(6.dp))
+                                    Icon(
+                                        Icons.Default.Bolt,
+                                        contentDescription = "Free model",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                         },
                         trailingIcon = if (isSelected) {
@@ -1042,13 +1316,25 @@ private fun ModelDropdownRow(
                         onClick = { onSelectModel(id) }
                     )
                 }
-                if (models.size > 14) {
-                    HorizontalDivider()
+                if (menuVisible.isEmpty()) {
                     DropdownMenuItem(
-                        text = { Text("Browse all ${models.size}…") },
-                        onClick = onBrowseAll
+                        text = { Text("No match for \"$menuQuery\"") },
+                        enabled = false,
+                        onClick = {}
                     )
                 }
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (menuCount > menuVisible.size) "Browse all $menuCount…"
+                            else "Browse all ${models.size}…",
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    },
+                    onClick = onBrowseAll
+                )
             }
         }
     }
@@ -1270,8 +1556,9 @@ private fun CodeBlockCard(
 }
 
 /**
- * Models browser: auto-fetches the live catalog for the current provider when opened,
- * with search. Selecting a model saves it as the explicit selection. No hardcoded models.
+ * Professional models browser: live catalog only, with a real search engine
+ * (multi-token + family match), ALL/FREE/KEYED tiers, free-first sections,
+ * provider header card, and badge rows. No hardcoded models.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1286,33 +1573,58 @@ private fun ModelsDialog(
     val loading by assistantViewModel.modelsLoading.collectAsState()
     val error by assistantViewModel.modelsError.collectAsState()
     var query by remember { mutableStateOf("") }
+    var tier by remember { mutableStateOf(ModelTierFilter.ALL) }
 
     LaunchedEffect(Unit) { assistantViewModel.refreshModels() }
 
-    val visible = remember(models, query) { filterModels(models, query) }
+    val freeSet = remember(freeModels) { freeModels.toSet() }
+    val visible = remember(models, query, tier, freeSet) {
+        searchModelCatalog(models, query, tier, freeSet)
+    }
+    val freeVisible = remember(visible, freeSet) { visible.filter { it in freeSet } }
+    val keyedVisible = remember(visible, freeSet) { visible.filter { it !in freeSet } }
+    val isZen = settings.provider == AgentProvider.OPENCODE_ZEN
 
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = LocalDialogShape.current,
-        title = { Text("Choose model") },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(36.dp)) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            if (isZen) Icons.Default.Cloud else Icons.Default.Memory,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Choose model", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${settings.provider.displayName} • ${models.size} models • ${freeModels.size} free",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                }
+            }
+        },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(
-                    buildString {
-                        append(settings.provider.displayName)
-                        if (freeModels.isNotEmpty()) append(" • ${freeModels.size} free")
-                        append(" • tap to select")
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    label = { Text("Search models") },
+                    placeholder = { Text("Search name or family: spark, gpt, flash…") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
@@ -1322,8 +1634,32 @@ private fun ModelsDialog(
                         }
                     },
                     singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.fillMaxWidth()
                 )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FilterChip(
+                        selected = tier == ModelTierFilter.ALL,
+                        onClick = { tier = ModelTierFilter.ALL },
+                        label = { Text("All ${models.size}") }
+                    )
+                    FilterChip(
+                        selected = tier == ModelTierFilter.FREE,
+                        onClick = { tier = ModelTierFilter.FREE },
+                        label = { Text("Free ${freeModels.size}") },
+                        leadingIcon = {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(14.dp))
+                        }
+                    )
+                    FilterChip(
+                        selected = tier == ModelTierFilter.KEYED,
+                        onClick = { tier = ModelTierFilter.KEYED },
+                        label = { Text("Keyed ${models.size - freeModels.size}") }
+                    )
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1341,88 +1677,109 @@ private fun ModelsDialog(
                         Spacer(Modifier.width(4.dp))
                         Text(if (loading) "Fetching…" else "Refresh")
                     }
-                    if (loading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
+                    Text(
+                        if (query.isBlank()) "${visible.size} shown"
+                        else "${visible.size} match \"${query.trim().take(24)}\"",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
                 if (error != null) {
-                    Text(
-                        error!!,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                error!!,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            TextButton(onClick = { assistantViewModel.refreshModels() }) { Text("Retry") }
+                        }
+                    }
                 }
                 HorizontalDivider()
-                if (freeModels.isNotEmpty() && query.isBlank()) {
-                    Text(
-                        "FREE — no key needed to list, key needed to chat",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 320.dp),
+                        .heightIn(max = 340.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    items(visible, key = { it }) { id ->
-                        val selected = settings.selectedModel.trim() == id
-                        val isFree = freeModels.any { it == id }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable {
-                                    assistantViewModel.selectModel(id)
-                                    onDismiss()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    id,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (selected) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    buildString {
-                                        append(settings.provider.displayName)
-                                        if (isFree) append(" • FREE")
-                                    },
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = if (isFree) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            if (selected) {
-                                Icon(
-                                    Icons.Default.Check,
-                                    contentDescription = "Selected",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                    if (freeVisible.isNotEmpty() && tier != ModelTierFilter.KEYED) {
+                        item(key = "hdr-free") {
+                            Text(
+                                "FREE — works without a key to list • ${freeVisible.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
                         }
+                    }
+                    items(freeVisible, key = { "f:$it" }) { id ->
+                        ModelBrowserRow(
+                            id = id,
+                            providerName = settings.provider.displayName,
+                            isFree = true,
+                            selected = settings.selectedModel.trim() == id,
+                            onSelect = {
+                                assistantViewModel.selectModel(id)
+                                onDismiss()
+                            }
+                        )
+                    }
+                    if (keyedVisible.isNotEmpty() && tier != ModelTierFilter.FREE) {
+                        item(key = "hdr-keyed") {
+                            Text(
+                                "KEYED — needs API key • ${keyedVisible.size}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+                    items(keyedVisible, key = { "k:$it" }) { id ->
+                        ModelBrowserRow(
+                            id = id,
+                            providerName = settings.provider.displayName,
+                            isFree = false,
+                            selected = settings.selectedModel.trim() == id,
+                            onSelect = {
+                                assistantViewModel.selectModel(id)
+                                onDismiss()
+                            }
+                        )
                     }
                     if (visible.isEmpty() && !loading) {
                         item {
-                            Text(
-                                if (models.isEmpty()) "No models yet — check connection, then Refresh."
-                                else "No models match \"$query\"",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(8.dp)
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.fillMaxWidth().padding(16.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    if (models.isEmpty()) "No models yet — check connection, then Refresh."
+                                    else "No models match \"$query\" — try fewer words.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -1432,6 +1789,87 @@ private fun ModelsDialog(
             TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
+}
+
+@Composable
+private fun ModelBrowserRow(
+    id: String,
+    providerName: String,
+    isFree: Boolean,
+    selected: Boolean,
+    onSelect: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onSelect)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = if (selected) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    modelFamily(id).take(1).uppercase(),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (selected) MaterialTheme.colorScheme.onPrimary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                id,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "${modelFamily(id)} • $providerName",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (isFree) {
+                    Spacer(Modifier.width(6.dp))
+                    AssistChip(
+                        onClick = onSelect,
+                        enabled = true,
+                        label = {
+                            Text("FREE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(14.dp))
+                        },
+                        modifier = Modifier.height(24.dp)
+                    )
+                }
+            }
+        }
+        if (selected) {
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                Icons.Default.Check,
+                contentDescription = "Selected",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
 }
 
 internal fun copyToClipboard(context: Context, text: String) {
