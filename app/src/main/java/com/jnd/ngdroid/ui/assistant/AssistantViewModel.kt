@@ -34,6 +34,8 @@ import com.jnd.ngdroid.data.CustomSkill
 import com.jnd.ngdroid.data.newCustomSkill
 import com.jnd.ngdroid.data.StoredAttachment
 import com.jnd.ngdroid.data.describeUploads
+import com.jnd.ngdroid.data.loadVisionImages
+import com.jnd.ngdroid.agent.LlmImage
 import com.jnd.ngdroid.data.ChatSession
 import com.jnd.ngdroid.data.NetworkMonitor
 import kotlinx.coroutines.Job
@@ -766,7 +768,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             setChatThinking(id, true)
             setChatStatus(id, "Contacting ${s.provider.displayName}…")
             // Attached images/docs are read on-device and appended to the
-            // prompt as text — the chat models are text-only.
+            // prompt as text; raster images ALSO ride as vision payloads.
             val files = attachments.take(MAX_ATTACHMENTS_PER_MESSAGE)
             if (files.isNotEmpty()) {
                 setChatStatus(id, "Reading ${files.size} attached file${if (files.size == 1) "" else "s"}…")
@@ -779,6 +781,12 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             } catch (_: Exception) {
                 clean
+            }
+            val userImages: List<LlmImage> = try {
+                if (files.isEmpty()) emptyList()
+                else loadVisionImages(AndroidUploadStore(getApplication()), files)
+            } catch (_: Exception) {
+                emptyList()
             }
             try {
                 val provider = buildProvider(s, key, model)
@@ -850,7 +858,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     },
                     errorFormatter = { AgentErrors.format(it, model) },
-                    systemPrompt = systemPrompt
+                    systemPrompt = systemPrompt,
+                    userImages = userImages
                 )
                 rt.history.add(ChatMessage(ChatRole.USER, enriched))
                 rt.history.add(ChatMessage(ChatRole.ASSISTANT, answer))

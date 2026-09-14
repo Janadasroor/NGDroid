@@ -146,7 +146,7 @@ class ZenProvider(
                         put("content", JsonPrimitive("Tool result: ${m.content}"))
                     })
                 }
-                else -> input.add(buildChatMessage(m, includeToolCalls = false))
+                else -> input.add(buildResponsesMessage(m))
             }
         }
         val root = buildJsonObject {
@@ -171,8 +171,29 @@ class ZenProvider(
         }
         return buildJsonObject {
             put("role", JsonPrimitive(role))
-            if (m.content.isNotEmpty()) put("content", JsonPrimitive(m.content))
-            else put("content", JsonNull)
+            if (m.images.isNotEmpty() && (m.role == ChatRole.USER || m.role == ChatRole.SYSTEM)) {
+                // OpenAI vision shape: content parts with text + image_url data URIs.
+                val parts = mutableListOf<JsonObject>()
+                if (m.content.isNotEmpty()) {
+                    parts.add(buildJsonObject {
+                        put("type", JsonPrimitive("text"))
+                        put("text", JsonPrimitive(m.content))
+                    })
+                }
+                for (img in m.images.take(MAX_VISION_IMAGES)) {
+                    val url = "data:${img.mimeType.ifBlank { "image/jpeg" }};base64,${img.base64}"
+                    parts.add(buildJsonObject {
+                        put("type", JsonPrimitive("image_url"))
+                        put("image_url", buildJsonObject {
+                            put("url", JsonPrimitive(url))
+                        })
+                    })
+                }
+                put("content", JsonArray(parts))
+            } else {
+                if (m.content.isNotEmpty()) put("content", JsonPrimitive(m.content))
+                else put("content", JsonNull)
+            }
             if (includeToolCalls && m.toolCalls.isNotEmpty()) {
                 put("tool_calls", JsonArray(m.toolCalls.map { tc ->
                     buildJsonObject {
@@ -187,6 +208,54 @@ class ZenProvider(
             }
             if (m.toolCallId != null) put("tool_call_id", JsonPrimitive(m.toolCallId))
         }
+    }
+
+    /**
+     * `/responses` message shape. Text-only stays a plain string (old behavior);
+     * vision turns content into input_text + input_image parts.
+     */
+    fun buildResponsesMessage(m: ChatMessage): JsonObject {
+        val role = when (m.role) {
+            ChatRole.SYSTEM -> "system"
+            ChatRole.USER -> "user"
+            ChatRole.ASSISTANT -> "assistant"
+            ChatRole.TOOL -> "user"
+        }
+        return buildJsonObject {
+            put("role", JsonPrimitive(role))
+            if (m.images.isNotEmpty() && (m.role == ChatRole.USER || m.role == ChatRole.SYSTEM)) {
+                val parts = mutableListOf<JsonObject>()
+                if (m.content.isNotEmpty()) {
+                    parts.add(buildJsonObject {
+                        put("type", JsonPrimitive("input_text"))
+                        put("text", JsonPrimitive(m.content))
+                    })
+                }
+                for (img in m.images.take(MAX_VISION_IMAGES)) {
+                    val url = "data:${img.mimeType.ifBlank { "image/jpeg" }};base64,${img.base64}"
+                    parts.add(buildJsonObject {
+                        put("type", JsonPrimitive("input_image"))
+                        put("image_url", JsonPrimitive(url))
+                    })
+                }
+                put("content", JsonArray(parts))
+            } else {
+                if (m.content.isNotEmpty()) put("content", JsonPrimitive(m.content))
+                else put("content", JsonNull)
+            }
+        }
+    }
+
+    /** Strip vision payloads for a text-only retry when a model rejects images. Pure. */
+    fun stripImages(messages: List<ChatMessage>): List<ChatMessage> =
+        messages.map { if (it.images.isEmpty()) it else it.copy(images = emptyList()) }
+
+    /** True when a provider failure looks like a vision rejection. Pure. */
+    fun isVisionRejection(message: String): Boolean {
+        val low = message.lowercase()
+        return ("image" in low || "vision" in low || "input_image" in low || "image_url" in low) &&
+            ("support" in low || "unsupported" in low || "invalid" in low ||
+                "reject" in low || "400" in low || "422" in low)
     }
 
     /**
@@ -304,6 +373,9 @@ class ZenProvider(
     }
 
     companion object {
+        /** Cap vision payloads: matches MAX_ATTACHMENTS_PER_MESSAGE. */
+        const val MAX_VISION_IMAGES = 4
+
         /** Cloud Zen API base — the only endpoint used. No localhost/shim. */
         const val ZEN_BASE = "https://opencode.ai/zen/v1"
 

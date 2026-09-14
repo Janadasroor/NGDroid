@@ -1,20 +1,29 @@
 package com.jnd.ngdroid.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Base64
+import com.jnd.ngdroid.agent.LlmImage
 import com.jnd.ngdroid.agent.describeImage
 import com.jnd.ngdroid.agent.extractPdfTextSnippet
 import com.jnd.ngdroid.agent.formatFileSize
 import com.jnd.ngdroid.agent.guessMimeFromName
 import com.jnd.ngdroid.agent.sanitizeFileName
 import com.jnd.ngdroid.ui.assistant.MAX_ATTACHMENT_CHARS
+import java.io.ByteArrayOutputStream
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 const val MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 private const val MAX_UPLOADS_KEPT = 20
+/** Longest side for vision payloads; keeps base64 small while staying readable. */
+const val MAX_VISION_SIDE = 1280
+/** Originals under this size + dimensions pass through without recompression. */
+private const val VISION_PASSTHROUGH_BYTES = 600 * 1024
 
 private val textExtensions = setOf(
     "txt", "csv", "md", "json", "xml", "html", "htm",
@@ -109,7 +118,8 @@ class AndroidUploadStore(private val appContext: Context) {
 
 /**
  * Local content for the agent prompt: file name → excerpt/metadata.
- * Images report format/dimensions/size (text models can't see pixels);
+ * Raster images are ALSO sent as vision payloads (see [loadVisionImages]),
+ * so the text here is grounding metadata, not a blindness disclaimer.
  * PDFs and text docs report an excerpt; anything else reports metadata.
  */
 suspend fun describeUploads(
@@ -135,8 +145,8 @@ suspend fun describeUploads(
                 } else {
                     "Image (${describeImage(bytes)}" +
                         (if (a.mimeType.isNotBlank()) ", ${a.mimeType}" else "") +
-                        "). Pixel content isn't directly visible to this text model — " +
-                        "report the format/size and ask the user what it shows if needed."
+                        "). The full pixel content is also attached as a vision image — " +
+                        "look at it directly and describe what it shows."
                 }
             }
             ext == "pdf" || mime == "application/pdf" ->
@@ -150,4 +160,84 @@ suspend fun describeUploads(
         }
     }
     out
+}
+
+/** True for raster images we can send as vision (SVG travels as text instead). Pure. */
+fun isVisionImage(mimeType: String, fileName: String): Boolean {
+    val mime = mimeType.substringBefore(';').trim().lowercase()
+    val ext = fileName.substringAfterLast('.', "").lowercase()
+    if (ext == "svg" || mime == "image/svg+xml") return false
+    if (mime.startsWith("image/")) return true
+    return ext in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp", "ico")
+}
+
+fun visionMimeFor(mimeType: String, fileName: String): String {
+    val mime = mimeType.substringBefore(';').trim().lowercase()
+    if (mime.startsWith("image/") && mime != "image/svg+xml") return mime
+    return when (fileName.substringAfterLast('.', "").lowercase()) {
+        "png" -> "image/png"
+        "gif" -> "image/gif"
+        "webp" -> "image/webp"
+        "bmp" -> "image/bmp"
+        else -> "image/jpeg"
+    }
+}
+
+/**
+ * Vision payloads for the current turn: downscaled + base64-encoded rasters,
+ * max 4. Small originals pass through untouched; large ones are resized to
+ * [MAX_VISION_SIDE] and JPEG-compressed so free-tier gateways stay happy.
+ */
+suspend fun loadVisionImages(
+    store: AndroidUploadStore,
+    attachments: List<StoredAttachment>,
+    maxImages: Int = 4
+): List<LlmImage> = withContext(Dispatchers.IO) {
+    val out = mutableListOf<LlmImage>()
+    for (a in attachments.take(maxImages)) {
+        if (!isVisionImage(a.mimeType, a.name)) continue
+        val raw = store.readBytes(a) ?: continue
+        if (raw.isEmpty()) continue
+        try {
+            val (bytes, mime) = downscaleForVision(raw, visionMimeFor(a.mimeType, a.name))
+            if (bytes.isEmpty() || bytes.size > MAX_UPLOAD_BYTES) continue
+            out.add(LlmImage(mime, Base64.encodeToString(bytes, Base64.NO_WRAP), a.name))
+        } catch (_: Exception) { }
+    }
+    out
+}
+
+/** Resize + recompress when needed; returns (bytes to send, mime to claim). */
+fun downscaleForVision(raw: ByteArray, mime: String): Pair<ByteArray, String> {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+    val w = bounds.outWidth
+    val h = bounds.outHeight
+    // Unparseable (or already small): send the original bytes as-is.
+    if (w <= 0 || h <= 0) return raw to mime
+    if (raw.size <= VISION_PASSTHROUGH_BYTES && maxOf(w, h) <= MAX_VISION_SIDE) {
+        return raw to mime
+    }
+    val scale = MAX_VISION_SIDE.toFloat() / maxOf(w, h).toFloat()
+    val targetW = (w * scale).toInt().coerceAtLeast(1)
+    val targetH = (h * scale).toInt().coerceAtLeast(1)
+    // Sample down first to avoid allocating a huge bitmap on 1440x1920+ photos.
+    var sample = 1
+    while (w / (sample * 2) >= targetW && h / (sample * 2) >= targetH && sample < 8) sample *= 2
+    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+    val decoded = BitmapFactory.decodeByteArray(raw, 0, raw.size, opts) ?: return raw to mime
+    return try {
+        val scaled = if (decoded.width != targetW || decoded.height != targetH) {
+            Bitmap.createScaledBitmap(decoded, targetW, targetH, true)
+        } else decoded
+        val stream = ByteArrayOutputStream()
+        // JPEG keeps photos small; schematics stay readable at quality 82.
+        scaled.compress(Bitmap.CompressFormat.JPEG, 82, stream)
+        if (scaled !== decoded) runCatching { scaled.recycle() }
+        runCatching { decoded.recycle() }
+        val bytes = stream.toByteArray()
+        if (bytes.isEmpty()) raw to mime else bytes to "image/jpeg"
+    } catch (_: Exception) {
+        raw to mime
+    }
 }

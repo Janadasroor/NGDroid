@@ -133,4 +133,34 @@ class ZenProviderCopyTest {
         assertFalse(free.contains("big-pickle"))
         assertFalse(free.contains("gpt-x"))
     }
+
+    @Test
+    fun chatVisionEmitsImageUrlParts() {
+        val provider = ZenProvider(http = { _, _, _ -> "{}" }, apiKey = "K", model = "big-pickle")
+        val img = LlmImage("image/jpeg", "QUJD", "board.jpg")
+        val body = provider.buildRequestJson(
+            "big-pickle", "s",
+            listOf(ChatMessage(ChatRole.USER, "see this", images = listOf(img))),
+            emptyList(), 0.7, 50
+        )
+        assertTrue(body.contains("image_url"))
+        assertTrue(body.contains("data:image/jpeg;base64,QUJD"))
+    }
+
+    @Test
+    fun responsesVisionEmitsInputImageParts() {
+        val provider = ZenProvider(http = { _, _, _ -> "{}" }, apiKey = "K")
+        val img = LlmImage("image/jpeg", "QUJD", "board.jpg")
+        val msg = provider.buildResponsesMessage(
+            ChatMessage(ChatRole.USER, "see this", images = listOf(img))
+        )
+        assertTrue(msg.toString().contains("input_image"))
+        assertTrue(msg.toString().contains("data:image/jpeg;base64,QUJD"))
+    }
+
+    @Test
+    fun visionRejectionDetected() {
+        assertTrue(isVisionRejection("400 image_url unsupported for this model"))
+        assertFalse(isVisionRejection("Rate limit exceeded"))
+    }
 }

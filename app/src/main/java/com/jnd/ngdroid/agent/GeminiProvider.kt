@@ -58,7 +58,18 @@ class GeminiProvider(
             val text = if (m.role == ChatRole.SYSTEM) "SYSTEM: ${m.content}" else m.content
             buildJsonObject {
                 put("role", JsonPrimitive(role))
-                put("parts", JsonArray(listOf(buildJsonObject { put("text", JsonPrimitive(text)) })))
+                val parts = mutableListOf<JsonObject>()
+                // Keep a text part even when empty so image-only turns stay valid.
+                parts.add(buildJsonObject { put("text", JsonPrimitive(text)) })
+                for (img in m.images.take(MAX_VISION_IMAGES)) {
+                    parts.add(buildJsonObject {
+                        put("inlineData", buildJsonObject {
+                            put("mimeType", JsonPrimitive(img.mimeType.ifBlank { "image/jpeg" }))
+                            put("data", JsonPrimitive(img.base64))
+                        })
+                    })
+                }
+                put("parts", JsonArray(parts))
             }
         }
         val root = buildJsonObject {
@@ -85,6 +96,8 @@ class GeminiProvider(
     }
 
     companion object {
+        const val MAX_VISION_IMAGES = 4
+
         fun parseListModelsResponse(bodyJson: String): List<String> {
             val json = Json { ignoreUnknownKeys = true }
             val root = runCatching { json.parseToJsonElement(bodyJson).jsonObject }.getOrNull()

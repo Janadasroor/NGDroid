@@ -5,10 +5,8 @@ import com.jnd.ngdroid.data.StoredAttachment
 /**
  * Pure prompt-attachment helpers. No Android imports — JVM-testable.
  *
- * The chat models are text-only, so attached images/docs reach the agent as
- * appended text: a per-file header plus the locally read excerpt (image
- * metadata/dimensions, doc text). [describeUploads] (Android) produces the
- * `name to body` pairs this file formats.
+ * Raster images ALSO travel as vision payloads ([com.jnd.ngdroid.agent.LlmImage]):
+ * appended text here is grounding metadata, the pixels ride alongside.
  */
 
 const val MAX_ATTACHMENTS_PER_MESSAGE = 4

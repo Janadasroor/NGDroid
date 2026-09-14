@@ -82,10 +82,12 @@ class AgentOrchestrator(
         /** Maps raw provider failure text to user-visible text (default: passthrough). */
         errorFormatter: (String) -> String = { it },
         /** Base system prompt; custom skills are pre-appended by the caller. */
-        systemPrompt: String = SPICE_SYSTEM
+        systemPrompt: String = SPICE_SYSTEM,
+        /** Vision payload for this turn (raster attachments as base64). History stays text-only. */
+        userImages: List<LlmImage> = emptyList()
     ): String {
         val conversation = history.toMutableList()
-        conversation.add(ChatMessage(ChatRole.USER, userMessage))
+        conversation.add(ChatMessage(ChatRole.USER, userMessage, images = userImages))
         onEvent(AgentEvent.Message(userMessage))
 
         val llmTools = tools.list().map { LlmTool(it.name, it.description, it.parametersJsonSchema) }
@@ -104,9 +106,33 @@ class AgentOrchestrator(
             val resp: LlmResponse = try {
                 provider.chat(req)
             } catch (e: Exception) {
-                onEvent(AgentEvent.Error("Provider error: ${e.message}"))
-                val friendly = errorFormatter(e.message ?: e.javaClass.simpleName)
-                return lastText.ifBlank { friendly }
+                // Vision fallback: a text-only model rejecting image_url/input_image
+                // should still answer from the metadata instead of hard-failing.
+                val msg = e.message.orEmpty()
+                if (conversation.any { it.images.isNotEmpty() } && isVisionRejection(msg)) {
+                    for (i in conversation.indices) {
+                        if (conversation[i].images.isNotEmpty()) {
+                            conversation[i] = conversation[i].copy(images = emptyList())
+                        }
+                    }
+                    try {
+                        provider.chat(
+                            LlmRequest(
+                                systemPrompt = systemPrompt,
+                                messages = conversation.toList(),
+                                tools = llmTools
+                            )
+                        )
+                    } catch (e2: Exception) {
+                        onEvent(AgentEvent.Error("Provider error: ${e2.message}"))
+                        val friendly = errorFormatter(e2.message ?: e2.javaClass.simpleName)
+                        return lastText.ifBlank { friendly }
+                    }
+                } else {
+                    onEvent(AgentEvent.Error("Provider error: ${e.message}"))
+                    val friendly = errorFormatter(e.message ?: e.javaClass.simpleName)
+                    return lastText.ifBlank { friendly }
+                }
             }
             if (resp.text.isNotBlank()) lastText = resp.text
 
