@@ -143,6 +143,13 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
      */
     private var settingsLoaded = false
 
+    /**
+     * True once the resumed chat's own model was applied after cold start.
+     * The settings collector would otherwise overwrite a restore done before
+     * the persisted settings arrive, so the restore waits for both streams.
+     */
+    private var modelRestoreDone = false
+
     /** Online state for send guards and the offline banner. */
     private val netMonitor = NetworkMonitor(application)
     val isOnline: StateFlow<Boolean> = netMonitor.isOnline
@@ -159,6 +166,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 store.settingsFlow.collect {
                     _settings.value = it
                     settingsLoaded = true
+                    restoreActiveChatModel()
                 }
             } catch (_: Exception) { }
         }
@@ -167,6 +175,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 chatStore.chatsFlow.collect {
                     cachedSessions = it
                     _sessions.value = it
+                    restoreActiveChatModel()
                 }
             } catch (_: Exception) { }
         }
@@ -343,6 +352,28 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _activeChatId.value = null
         viewModelScope.launch {
             try { chatStore.setActiveId(null) } catch (_: Exception) { }
+        }
+    }
+
+    /**
+     * Cold-start follow-up: once settings and sessions both arrive, put the
+     * resumed chat's own model back (same logic as a drawer-tap open).
+     * Idempotent — after applying, or when nothing differs, later calls no-op.
+     */
+    private fun restoreActiveChatModel() {
+        if (modelRestoreDone || !settingsLoaded || cachedSessions.isEmpty()) return
+        val id = _activeChatId.value ?: return
+        val session = cachedSessions.firstOrNull { it.id == id } ?: return
+        modelRestoreDone = true
+        val savedModel = session.model.trim()
+        if (savedModel.isEmpty()) return
+        val matchedProvider =
+            AgentProvider.entries.firstOrNull { it.displayName == session.providerName }
+        if (matchedProvider != null && matchedProvider != _settings.value.provider) {
+            updateProvider(matchedProvider)
+        }
+        if (savedModel != _settings.value.selectedModel) {
+            selectModel(savedModel)
         }
     }
 
