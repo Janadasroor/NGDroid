@@ -18,6 +18,7 @@ import com.jnd.ngdroid.agent.FetchUrlTool
 import com.jnd.ngdroid.agent.ImageSearchTool
 import com.jnd.ngdroid.agent.HttpClients
 import com.jnd.ngdroid.agent.MapToolRegistry
+import com.jnd.ngdroid.agent.OpenAiProvider
 import com.jnd.ngdroid.agent.ReadFileTool
 import com.jnd.ngdroid.agent.ReadSkillTool
 import com.jnd.ngdroid.data.AndroidAssistantFileStore
@@ -420,13 +421,15 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             } catch (_: Exception) { }
         }
         // Zen needs no key for /models: fetch immediately so free models show.
-        if (provider == AgentProvider.OPENCODE_ZEN) refreshModels()
+        // Keyed providers fetch too when a key is already saved.
+        if (provider == AgentProvider.OPENCODE_ZEN || _settings.value.activeApiKey().isNotEmpty()) refreshModels()
     }
 
     /** Save the API key for one provider (Settings screen). */
     fun updateKey(provider: AgentProvider, key: String) {
         _settings.value = when (provider) {
             AgentProvider.GEMINI -> _settings.value.copy(geminiApiKey = key)
+            AgentProvider.OPENAI -> _settings.value.copy(openaiApiKey = key)
             AgentProvider.OPENCODE_ZEN -> _settings.value.copy(zenApiKey = key)
         }
         viewModelScope.launch {
@@ -434,11 +437,13 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Persist both keys at once. */
-    fun updateKeys(geminiKey: String, zenKey: String) {
-        _settings.value = _settings.value.copy(geminiApiKey = geminiKey, zenApiKey = zenKey)
+    /** Persist all provider keys at once. */
+    fun updateKeys(geminiKey: String, openaiKey: String, zenKey: String) {
+        _settings.value = _settings.value.copy(geminiApiKey = geminiKey, openaiApiKey = openaiKey, zenApiKey = zenKey)
         viewModelScope.launch {
-            try { store.setKeys(geminiKey, zenKey) } catch (_: Exception) { }
+            try {
+                store.setKeys(geminiKey, openaiKey, zenKey)
+            } catch (_: Exception) { }
         }
     }
 
@@ -559,6 +564,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     private fun buildProvider(s: AgentSettings, key: String, model: String) = when (s.provider) {
         AgentProvider.GEMINI -> GeminiProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
+        AgentProvider.OPENAI -> OpenAiProvider(HttpClients.okHttpPost(), apiKey = key, model = model)
         AgentProvider.OPENCODE_ZEN -> ZenProvider(
             HttpClients.okHttpPost(),
             apiKey = key,
@@ -737,8 +743,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
-     * True when a Zen model id requires the user's own key: anything that is
-     * not a free-tier (`-free`) id. Gemini always needs its key.
+     * True when the model needs the provider key: Gemini/OpenAI always;
+     * Zen only for non-free (`-free`) ids (free ids run keyless).
      */
     private fun zenNeedsKey(model: String): Boolean {
         if (_settings.value.provider != AgentProvider.OPENCODE_ZEN) return true

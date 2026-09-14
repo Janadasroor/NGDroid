@@ -2,12 +2,14 @@ package com.jnd.ngdroid.data
 
 enum class AgentProvider(val displayName: String) {
     GEMINI("Gemini"),
+    OPENAI("OpenAI"),
     OPENCODE_ZEN("OpenCode Zen")
 }
 
 data class AgentSettings(
     val provider: AgentProvider = AgentProvider.OPENCODE_ZEN,
     val geminiApiKey: String = "",
+    val openaiApiKey: String = "",
     val zenApiKey: String = "",
     /** Optional Brave Search key. Blank = free DuckDuckGo backend. */
     val searchApiKey: String = "",
@@ -33,6 +35,7 @@ data class AgentSettings(
 ) {
     fun activeApiKey(): String = when (provider) {
         AgentProvider.GEMINI -> geminiApiKey.trim()
+        AgentProvider.OPENAI -> openaiApiKey.trim()
         AgentProvider.OPENCODE_ZEN -> zenApiKey.trim()
     }
 

@@ -16,6 +16,7 @@ class AgentDataStore(private val context: Context) {
     private object Keys {
         val PROVIDER = stringPreferencesKey("agent_provider")
         val GEMINI_KEY = stringPreferencesKey("gemini_key")
+        val OPENAI_KEY = stringPreferencesKey("openai_key")
         val ZEN_KEY = stringPreferencesKey("zen_key")
         val SEARCH_KEY = stringPreferencesKey("search_key")
         val SELECTED_MODEL = stringPreferencesKey("selected_model")
@@ -40,6 +41,7 @@ class AgentDataStore(private val context: Context) {
         AgentSettings(
             provider = try { AgentProvider.valueOf(providerStr) } catch (_: Exception) { AgentProvider.OPENCODE_ZEN },
             geminiApiKey = prefs[Keys.GEMINI_KEY] ?: "",
+            openaiApiKey = prefs[Keys.OPENAI_KEY] ?: "",
             zenApiKey = prefs[Keys.ZEN_KEY] ?: "",
             searchApiKey = prefs[Keys.SEARCH_KEY] ?: "",
             // Migrate legacy "model_override" value forward once, then stop reading it.
@@ -71,19 +73,19 @@ class AgentDataStore(private val context: Context) {
         context.agentDataStore.edit {
             when (provider) {
                 AgentProvider.GEMINI -> it[Keys.GEMINI_KEY] = key
+                AgentProvider.OPENAI -> it[Keys.OPENAI_KEY] = key
                 AgentProvider.OPENCODE_ZEN -> it[Keys.ZEN_KEY] = key
             }
         }
     }
 
-    suspend fun setKeys(geminiKey: String, zenKey: String) {
+    suspend fun setKeys(geminiKey: String, openaiKey: String, zenKey: String) {
         context.agentDataStore.edit {
             it[Keys.GEMINI_KEY] = geminiKey
+            it[Keys.OPENAI_KEY] = openaiKey
             it[Keys.ZEN_KEY] = zenKey
         }
-    }
-
-    suspend fun setSearchKey(key: String) {
+    }    suspend fun setSearchKey(key: String) {
         context.agentDataStore.edit { it[Keys.SEARCH_KEY] = key }
     }
 
@@ -131,6 +133,7 @@ class AgentDataStore(private val context: Context) {
         context.agentDataStore.edit {
             it[Keys.PROVIDER] = settings.provider.name
             it[Keys.GEMINI_KEY] = settings.geminiApiKey
+            it[Keys.OPENAI_KEY] = settings.openaiApiKey
             it[Keys.ZEN_KEY] = settings.zenApiKey
             it[Keys.SEARCH_KEY] = settings.searchApiKey
             it[Keys.SELECTED_MODEL] = settings.selectedModel
@@ -155,6 +158,7 @@ class AgentDataStore(private val context: Context) {
         context.agentDataStore.edit {
             it.remove(Keys.PROVIDER)
             it.remove(Keys.GEMINI_KEY)
+            it.remove(Keys.OPENAI_KEY)
             it.remove(Keys.ZEN_KEY)
             it.remove(Keys.SEARCH_KEY)
             it.remove(Keys.SELECTED_MODEL)

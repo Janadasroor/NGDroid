@@ -64,6 +64,7 @@ fun AiAssistantSettingsCard(
     val provider = agentSettings.provider
     val savedKey = when (provider) {
         AgentProvider.GEMINI -> agentSettings.geminiApiKey
+        AgentProvider.OPENAI -> agentSettings.openaiApiKey
         AgentProvider.OPENCODE_ZEN -> agentSettings.zenApiKey
     }
 
@@ -154,6 +155,9 @@ fun AiAssistantSettingsCard(
                     AgentProvider.GEMINI ->
                         "Get a key from Google AI Studio. The app calls " +
                             "generativelanguage.googleapis.com directly."
+                    AgentProvider.OPENAI ->
+                        "Get a key from platform.openai.com. The app calls " +
+                            "api.openai.com/v1 directly — listing is free, chat needs credits."
                     AgentProvider.OPENCODE_ZEN ->
                         "Get a key from opencode.ai. The app calls " +
                             "opencode.ai/zen/v1 directly."
