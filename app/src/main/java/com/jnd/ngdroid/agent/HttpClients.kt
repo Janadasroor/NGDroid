@@ -9,6 +9,11 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 object HttpClients {
+    /** Browser UA: bot-protection (Wikimedia, Brave, DDG) 403s OkHttp/Coil default UAs. */
+    const val BROWSER_USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +
+            "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -52,11 +57,7 @@ object HttpClients {
     fun okHttpGet(client: OkHttpClient): HttpGet = { url, headers ->
         val builder = Request.Builder()
             .url(url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
-            )
+            .header("User-Agent", BROWSER_USER_AGENT)
             .get()
         for ((k, v) in headers) builder.header(k, v)
         client.newCall(builder.build()).execute().use { resp ->
@@ -82,11 +83,7 @@ object HttpClients {
     fun okHttpBytes(client: OkHttpClient): HttpBytes = { url, headers ->
         val builder = Request.Builder()
             .url(url)
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +
-                    "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
-            )
+            .header("User-Agent", BROWSER_USER_AGENT)
             .get()
         for ((k, v) in headers) builder.header(k, v)
         client.newCall(builder.build()).execute().use { resp ->

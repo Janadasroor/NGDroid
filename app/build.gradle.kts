@@ -88,6 +88,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
     implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.35.0")
+    // Coil network transport (NOT pulled in by the markdown coil3 module):
+    // without it remote chat images have no fetcher and render blank.
+    // Registered explicitly (not via ServiceLoader) so R8 can't strip it.
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.1.0")
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.kotlinx.coroutines.test)
