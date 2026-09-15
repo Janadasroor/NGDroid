@@ -10,9 +10,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import com.jnd.ngdroid.data.AppSettings
 import com.jnd.ngdroid.engine.VectorSeries
+import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.max
 import kotlin.math.min
@@ -53,6 +55,42 @@ fun compactTick(s: String): String {
     return (listOf(mant) + parts.drop(1)).joinToString(" ")
 }
 
+/** True when voltage and current traces share the plot (right Y axis). Pure. */
+fun isDualAxis(dataVectors: List<VectorSeries>, activeVectors: Set<String>): Boolean {
+    val active = dataVectors.filter { activeVectors.contains(it.name) && it.values.isNotEmpty() }
+    return active.any { it.isCurrent } && active.any { !it.isCurrent }
+}
+
+/** Graph paddings + plot area in pixels. Shared by the renderer and tap mapping. Pure. */
+data class PlotGeometry(
+    val paddingLeft: Float,
+    val paddingTop: Float,
+    val paddingRight: Float,
+    val paddingBottom: Float,
+    val graphWidth: Float,
+    val graphHeight: Float
+)
+
+fun plotGeometry(density: Density, dualAxis: Boolean, canvasWidth: Float, canvasHeight: Float): PlotGeometry {
+    val paddingLeft = with(density) { 58.dp.toPx() }
+    val paddingRight = with(density) { (if (dualAxis) 56.dp else 12.dp).toPx() }
+    val paddingBottom = with(density) { 46.dp.toPx() }
+    val paddingTop = with(density) { 10.dp.toPx() }
+    return PlotGeometry(
+        paddingLeft, paddingTop, paddingRight, paddingBottom,
+        graphWidth = canvasWidth - paddingLeft - paddingRight,
+        graphHeight = canvasHeight - paddingTop - paddingBottom
+    )
+}
+
+/** X fraction (0..1 across the graph) for a tap at [xPx]. Pure; JVM-testable. */
+fun tapToFrac(xPx: Float, paddingLeft: Float, graphWidth: Float): Float =
+    ((xPx - paddingLeft) / graphWidth).coerceIn(0f, 1f)
+
+/** 1 = move C1, 2 = move C2: whichever cursor is nearer the tap. Pure. */
+fun nearestCursor(frac: Float, cursor1Frac: Float, cursor2Frac: Float): Int =
+    if (abs(frac - cursor1Frac) <= abs(frac - cursor2Frac)) 1 else 2
+
 /**
  * Shared waveform renderer used by both the on-screen [WaveformCanvas]
  * and offscreen PNG/PDF export. Supports Dual Y-Axes (Voltage vs Current)
@@ -77,14 +115,13 @@ fun DrawScope.drawWaveform(
     val height = size.height
 
     val activeDataVecs = dataVectors.filter { activeVectors.contains(it.name) && it.values.isNotEmpty() }
-    val hasCurrentVecs = activeDataVecs.any { it.isCurrent }
-    val hasVoltageVecs = activeDataVecs.any { !it.isCurrent }
-    val isDualAxis = hasCurrentVecs && hasVoltageVecs
+    val isDualAxis = isDualAxis(dataVectors, activeVectors)
 
-    val paddingLeft = 58.dp.toPx()
-    val paddingRight = if (isDualAxis) 56.dp.toPx() else 12.dp.toPx()
-    val paddingBottom = 46.dp.toPx()
-    val paddingTop = 10.dp.toPx()
+    val geo = plotGeometry(this, isDualAxis, width, height)
+    val paddingLeft = geo.paddingLeft
+    val paddingRight = geo.paddingRight
+    val paddingBottom = geo.paddingBottom
+    val paddingTop = geo.paddingTop
 
     val graphWidth = width - paddingLeft - paddingRight
     val graphHeight = height - paddingTop - paddingBottom
@@ -279,6 +316,14 @@ fun DrawScope.drawWaveform(
             while (i < count) {
                 val xVal = scaleVector.values[i]
                 val yVal = vec.values[i]
+
+                // Non-finite samples (e.g. A/B divide-by-zero): break the
+                // path so the next valid sample starts a fresh segment.
+                if (!xVal.isFinite() || !yVal.isFinite()) {
+                    isFirst = true
+                    i += step
+                    continue
+                }
 
                 val px = if (isLogX) {
                     val logVal = log10(max(1e-12, xVal))

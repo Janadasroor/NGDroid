@@ -1,12 +1,14 @@
 package com.jnd.ngdroid.ui.plot
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextMeasurer
 import com.jnd.ngdroid.data.AppSettings
 import com.jnd.ngdroid.engine.VectorSeries
@@ -20,7 +22,6 @@ val TraceColors = listOf(
     Color(0xFFD500F9)  // Purple
 )
 
-@Suppress("UNUSED_PARAMETER")
 @Composable
 fun WaveformCanvas(
     scaleVector: VectorSeries,
@@ -40,12 +41,38 @@ fun WaveformCanvas(
     modifier: Modifier = Modifier,
     textMeasurer: TextMeasurer? = null
 ) {
-    Canvas(
-        modifier = modifier.pointerInput(Unit) {
-            detectTransformGestures { _, pan, zoom, _ ->
-                onTransform(zoom, pan)
-            }
+    val density = LocalDensity.current
+    // Tap places the nearer cursor (pinch/pan stays on the transform block;
+    // a tap never pans, so the two gestures don't fight).
+    val tapModifier = if (showCursors) {
+        Modifier.pointerInput(density, dataVectors, activeVectors, cursor1Frac, cursor2Frac) {
+            detectTapGestures(onTap = { offset ->
+                val geo = plotGeometry(
+                    density,
+                    isDualAxis(dataVectors, activeVectors),
+                    size.width.toFloat(),
+                    size.height.toFloat()
+                )
+                if (geo.graphWidth <= 0) return@detectTapGestures
+                val frac = tapToFrac(offset.x, geo.paddingLeft, geo.graphWidth)
+                if (nearestCursor(frac, cursor1Frac, cursor2Frac) == 1) {
+                    onCursor1Move(frac)
+                } else {
+                    onCursor2Move(frac)
+                }
+            })
         }
+    } else {
+        Modifier
+    }
+    Canvas(
+        modifier = modifier
+            .then(tapModifier)
+            .pointerInput(Unit) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    onTransform(zoom, pan)
+                }
+            }
     ) {
         drawWaveform(
             scaleVector = scaleVector,

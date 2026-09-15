@@ -45,6 +45,22 @@ class AxisTicksTest {
     }
 
     @Test
+    fun tapMapsIntoGraphFraction() {
+        // 58dp left pad @2.0 density = 116px; 12dp right = 24px on 1000px.
+        assertEquals(0f, tapToFrac(0f, 116f, 860f))
+        assertEquals(1f, tapToFrac(2000f, 116f, 860f))
+        assertEquals(0.5f, tapToFrac(116f + 430f, 116f, 860f), 1e-6f)
+    }
+
+    @Test
+    fun nearestCursorPicksCloser() {
+        assertEquals(1, nearestCursor(0.1f, 0.3f, 0.7f))
+        assertEquals(2, nearestCursor(0.9f, 0.3f, 0.7f))
+        assertEquals(1, nearestCursor(0.5f, 0.3f, 0.7f))
+        assertEquals(2, nearestCursor(0.51f, 0.3f, 0.7f))
+    }
+
+    @Test
     fun formatTickUsesEngNotation() {
         assertEquals("2.5 M", formatTick(2.5e6))
         assertEquals("33.2 n", formatTick(33.2e-9))
