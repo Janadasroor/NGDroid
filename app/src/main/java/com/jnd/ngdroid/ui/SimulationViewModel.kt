@@ -447,6 +447,14 @@ class SimulationViewModel(
             com.jnd.ngdroid.engine.SimulationService.stop(getApplication())
         } catch (_: Exception) { }
     }
+
+    /** Abandon the run (no Resume offered); also stops the service. */
+    fun stopSimulation() {
+        repository.stopSimulation()
+        try {
+            com.jnd.ngdroid.engine.SimulationService.stop(getApplication())
+        } catch (_: Exception) { }
+    }
     fun resumeSimulation() = repository.resumeSimulation()
     fun toggleVectorActive(vecName: String) = repository.toggleVectorActive(vecName)
     fun clearLogs() = repository.clearLogs()

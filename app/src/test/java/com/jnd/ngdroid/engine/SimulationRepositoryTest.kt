@@ -101,8 +101,7 @@ class SimulationRepositoryTest {
     }
 
     @Test
-    fun reinit_clearsBuffers() {
-        val names = arrayOf("time", "v(in)")
+    fun reinit_clearsBuffers() {        val names = arrayOf("time", "v(in)")
         repository.callback.onInitData("time", "t", "tran1", "transient", names)
         repository.callback.onData(names, doubleArrayOf(0.0, 1.0))
         repository.callback.onInitData("frequency", "t2", "ac1", "ac", arrayOf("frequency", "v(out)"))
@@ -110,5 +109,22 @@ class SimulationRepositoryTest {
         assertEquals("frequency", plot.scaleVector!!.name)
         assertTrue(plot.scaleVector!!.values.isEmpty())
         assertEquals(0, repository.state.value.totalPointCount)
+    }
+
+    @Test
+    fun stopSimulation_settlesWithoutPausedFlag() {
+        // JVM-safe: native never initializes here, so only the else branch runs.
+        // stopSimulation launches on Dispatchers.IO (real thread), so poll.
+        repository.stopSimulation()
+        val deadline = System.currentTimeMillis() + 2000
+        while (repository.state.value.statusText != SimulationRepository.STATUS_STOPPED &&
+            System.currentTimeMillis() < deadline
+        ) {
+            Thread.sleep(20)
+        }
+        val state = repository.state.value
+        assertFalse(state.isSimulating)
+        assertFalse(state.isPaused)
+        assertEquals(SimulationRepository.STATUS_STOPPED, state.statusText)
     }
 }

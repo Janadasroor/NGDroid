@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusWeak
@@ -38,6 +40,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -244,39 +247,30 @@ fun PlotScreen(
                     }
 
                     // PNG snapshot: tap to share, long-press to save to Downloads.
+                    // Single combinedClickable (no nested IconButton handler).
                     if (plot != null && plot.scaleVector?.values?.isNotEmpty() == true) {
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    val ok = withContext(Dispatchers.IO) {
-                                        exportUseCase.sharePng(
-                                            context, plot, combinedActive, settings, currentViewState()
-                                        )
-                                    }
-                                    if (!ok) {
-                                        Toast.makeText(
-                                            context, "Nothing to export yet", Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                }
-                            },
-                            modifier = Modifier.combinedClickable(
-                                onClick = {
-                                    scope.launch {
-                                        val ok = withContext(Dispatchers.IO) {
-                                            exportUseCase.sharePng(
-                                                context, plot, combinedActive, settings, currentViewState()
-                                            )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .combinedClickable(
+                                    onClick = {
+                                        scope.launch {
+                                            val ok = withContext(Dispatchers.IO) {
+                                                exportUseCase.sharePng(
+                                                    context, plot, combinedActive, settings, currentViewState()
+                                                )
+                                            }
+                                            if (!ok) {
+                                                Toast.makeText(
+                                                    context, "Nothing to export yet", Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
                                         }
-                                        if (!ok) {
-                                            Toast.makeText(
-                                                context, "Nothing to export yet", Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
-                                    }
-                                },
-                                onLongClick = { savePngWithPermission() }
-                            )
+                                    },
+                                    onLongClick = { savePngWithPermission() }
+                                )
                         ) {
                             Icon(
                                 Icons.Default.Download,
@@ -288,10 +282,10 @@ fun PlotScreen(
 
                     if (state.isSimulating) {
                         IconButton(onClick = { repository.haltSimulation() }) {
-                            Icon(Icons.Default.Pause, contentDescription = "Pause", tint = MaterialTheme.colorScheme.primary)
+                            Icon(Icons.Default.Pause, contentDescription = "Pause (resumable)", tint = MaterialTheme.colorScheme.primary)
                         }
-                        IconButton(onClick = { repository.haltSimulation() }) {
-                            Icon(Icons.Default.Stop, contentDescription = "Stop", tint = MaterialTheme.colorScheme.error)
+                        IconButton(onClick = { simulationViewModel.stopSimulation() }) {
+                            Icon(Icons.Default.Stop, contentDescription = "Stop (abandon run)", tint = MaterialTheme.colorScheme.error)
                         }
                     } else if (state.isPaused) {
                         IconButton(onClick = { repository.resumeSimulation() }) {

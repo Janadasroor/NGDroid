@@ -16,6 +16,12 @@ class SimulationRepository(
 ) {
     companion object {
         const val MAX_LOG_LINES = 2000
+        /** Hard cap for the bg_run completion wait (reported as timeout). */
+        const val RUN_TIMEOUT_MS = 120_000L
+        /** Grace to first observe the bg thread before trusting "not running". */
+        const val START_GRACE_MS = 10_000L
+        /** Terminal status set by stopSimulation(); run completion must not overwrite it. */
+        const val STATUS_STOPPED = "Simulation Stopped by User"
     }
 
     private val ownedJob = SupervisorJob()
@@ -286,11 +292,13 @@ class SimulationRepository(
             // viewer shows vector names with empty traces. ngspice can
             // report not-running right after bg_run (stale callback) so
             // only trust "not running" after having seen "running", with
-            // a 10 s start grace; hard cap 120 s.
+            // a 10 s start grace; hard cap 120 s (reported as timeout,
+            // never silently as success).
+            var timedOut = false
             if (started) {
                 val startMs = System.currentTimeMillis()
-                val deadline = startMs + 120_000L
-                val startGrace = startMs + 10_000L
+                val deadline = startMs + RUN_TIMEOUT_MS
+                val startGrace = startMs + START_GRACE_MS
                 var seenRunning = false
                 while (System.currentTimeMillis() < deadline) {
                     val running = try {
@@ -304,20 +312,45 @@ class SimulationRepository(
                     if (!seenRunning && System.currentTimeMillis() > startGrace) break
                     kotlinx.coroutines.delay(100)
                 }
+                timedOut = try {
+                    NativeNgSpice.nativeIsRunning()
+                } catch (_: Throwable) {
+                    false
+                }
             }
 
             // Final flush of vector buffers when simulation completes
             flushVectorBuffersToState()
 
             _state.update {
-                // A user halt during the wait already settled the state —
-                // don't overwrite its "Halted" status with "Complete".
+                // A user halt/stop during the wait already settled the state —
+                // don't overwrite it with "Complete".
                 if (!it.isSimulating && it.isPaused) return@update it
-                it.copy(
-                    isSimulating = false,
-                    progressFraction = 1.0f,
-                    statusText = if (started) "Simulation Complete" else "Simulation Failed"
-                )
+                if (!it.isSimulating && it.statusText == STATUS_STOPPED) return@update it
+                when {
+                    !started -> it.copy(
+                        isSimulating = false,
+                        progressFraction = 1.0f,
+                        statusText = "Simulation Failed"
+                    )
+                    timedOut -> it.copy(
+                        isSimulating = false,
+                        progressFraction = 1.0f,
+                        statusText = "Simulation Timed Out",
+                        hasError = true,
+                        errorMessage = "Simulation did not finish within ${RUN_TIMEOUT_MS / 1000} s.",
+                        logs = appendLog(
+                            it.logs,
+                            "[ERROR] Simulation timed out after ${RUN_TIMEOUT_MS / 1000} s " +
+                                "and was left running in the background; halt it before re-running."
+                        )
+                    )
+                    else -> it.copy(
+                        isSimulating = false,
+                        progressFraction = 1.0f,
+                        statusText = "Simulation Complete"
+                    )
+                }
             }
         }
     }
@@ -333,6 +366,37 @@ class SimulationRepository(
                         isPaused = true,
                         statusText = "Simulation Halted by User",
                         logs = appendLog(it.logs, "[INFO] Simulation interrupted by user.")
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Abandon the run: halts the bg thread like [haltSimulation] but clears
+     * the paused flag, so no Resume affordance is offered afterwards.
+     * Partial plot data is kept for inspection.
+     */
+    fun stopSimulation() {
+        scope.launch(Dispatchers.IO) {
+            if (isInitialized) {
+                NativeNgSpice.nativeHalt()
+                flushVectorBuffersToState()
+                _state.update {
+                    it.copy(
+                        isSimulating = false,
+                        isPaused = false,
+                        statusText = STATUS_STOPPED,
+                        logs = appendLog(it.logs, "[INFO] Simulation stopped by user.")
+                    )
+                }
+            } else {
+                _state.update {
+                    it.copy(
+                        isSimulating = false,
+                        isPaused = false,
+                        statusText = STATUS_STOPPED,
+                        logs = appendLog(it.logs, "[INFO] Simulation stopped by user.")
                     )
                 }
             }
