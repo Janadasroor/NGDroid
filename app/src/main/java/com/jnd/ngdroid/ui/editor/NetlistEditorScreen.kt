@@ -286,7 +286,9 @@ fun NetlistEditorScreen(
                 ExtendedFloatingActionButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        repository.haltSimulation()
+                        // Via the ViewModel so the foreground service is
+                        // stopped too — a bare repository call would leak it.
+                        viewModel.haltSimulation()
                     },
                     icon = { Icon(Icons.Default.Stop, contentDescription = "Stop") },
                     text = { Text("Stop Simulation") },
@@ -296,7 +298,9 @@ fun NetlistEditorScreen(
                 ExtendedFloatingActionButton(
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        repository.runSimulation()
+                        // Via the ViewModel so the foreground service keeps
+                        // long runs alive when the app is backgrounded.
+                        viewModel.runSimulation()
                         onNavigateToPlot()
                     },
                     icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Run") },
