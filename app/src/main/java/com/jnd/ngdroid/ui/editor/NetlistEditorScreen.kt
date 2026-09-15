@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Stop
@@ -282,18 +283,39 @@ fun NetlistEditorScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            if (state.isSimulating) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        // Via the ViewModel so the foreground service is
-                        // stopped too — a bare repository call would leak it.
-                        viewModel.haltSimulation()
-                    },
-                    icon = { Icon(Icons.Default.Stop, contentDescription = "Stop") },
-                    text = { Text("Stop Simulation") },
-                    containerColor = MaterialTheme.colorScheme.error
-                )
+            if (state.isSimulating || state.isPaused) {
+                // Live run: both controls side by side — Pause keeps Resume
+                // available, Stop abandons the run entirely.
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (state.isPaused) {
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.resumeSimulation()
+                            },
+                            icon = { Icon(Icons.Default.PlayArrow, contentDescription = "Resume") },
+                            text = { Text("Resume") }
+                        )
+                    } else {
+                        ExtendedFloatingActionButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                viewModel.haltSimulation()
+                            },
+                            icon = { Icon(Icons.Default.Pause, contentDescription = "Pause") },
+                            text = { Text("Pause") }
+                        )
+                    }
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            viewModel.stopSimulation()
+                        },
+                        icon = { Icon(Icons.Default.Stop, contentDescription = "Stop") },
+                        text = { Text("Stop") },
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                }
             } else {
                 ExtendedFloatingActionButton(
                     onClick = {
