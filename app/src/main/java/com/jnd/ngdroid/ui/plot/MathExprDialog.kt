@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,7 +45,8 @@ fun MathExprDialog(
     initial: String?,
     vectors: List<VectorSeries>,
     onDismiss: () -> Unit,
-    onApply: (String) -> Unit
+    onApply: (String) -> Unit,
+    onClear: () -> Unit
 ) {
     var field by remember(initial) { mutableStateOf(TextFieldValue(initial ?: "")) }
     var dropExpanded by remember { mutableStateOf(false) }
@@ -164,7 +166,12 @@ fun MathExprDialog(
             ) { Text("Apply") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (!initial.isNullOrBlank()) {
+                    TextButton(onClick = onClear) { Text("Clear") }
+                }
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+            }
         }
     )
 }

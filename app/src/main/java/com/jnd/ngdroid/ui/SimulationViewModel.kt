@@ -454,10 +454,23 @@ class SimulationViewModel(
 
     // ---- Math channel (fx): the expression string only, evaluated lazily
     // in PlotScreen. Survives tab switches (VM-scoped); re-resolves per plot.
+    // Toggling the trace chip only flips visibility — the equation stays,
+    // so re-checking restores it without retyping.
     var mathExpr: String? by mutableStateOf(null)
+    var mathVisible: Boolean by mutableStateOf(true)
+
+    fun applyMathExpr(expr: String?) {
+        mathExpr = expr?.trim()?.takeIf { it.isNotEmpty() }
+        mathVisible = true
+    }
+
+    fun toggleMathVisibility() {
+        mathVisible = !mathVisible
+    }
 
     fun clearMath() {
         mathExpr = null
+        mathVisible = true
     }
 
     /**

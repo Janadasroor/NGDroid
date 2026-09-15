@@ -89,6 +89,7 @@ fun PlotScreen(
     // the trace itself is evaluated lazily here — never stored.
     var showMathDialog by remember { mutableStateOf(false) }
     val mathExpr = simulationViewModel.mathExpr
+    val mathVisible = simulationViewModel.mathVisible
     val mathVec = remember(plot, mathExpr) {
         evalMathExpr(mathExpr.orEmpty(), plot?.dataVectors.orEmpty())
     }
@@ -96,8 +97,9 @@ fun PlotScreen(
         val base = plot?.dataVectors.orEmpty()
         if (mathVec != null) base + mathVec else base
     }
-    val combinedActive = remember(state.activeVectors, mathVec) {
-        if (mathVec != null) state.activeVectors + mathVec.name else state.activeVectors
+    val combinedActive = remember(state.activeVectors, mathVec, mathVisible) {
+        if (mathVec != null && mathVisible) state.activeVectors + mathVec.name
+        else state.activeVectors
     }
     fun toggleMathDialog() {
         showMathDialog = true
@@ -226,7 +228,7 @@ fun PlotScreen(
                         Icon(
                             Icons.Default.Functions,
                             contentDescription = "Math channel",
-                            tint = if (showMathDialog || mathVec != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = if (showMathDialog || (mathVec != null && mathVisible)) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
@@ -307,7 +309,11 @@ fun PlotScreen(
                 vectors = plot?.dataVectors.orEmpty(),
                 onDismiss = { showMathDialog = false },
                 onApply = {
-                    simulationViewModel.mathExpr = it
+                    simulationViewModel.applyMathExpr(it)
+                    showMathDialog = false
+                },
+                onClear = {
+                    simulationViewModel.clearMath()
                     showMathDialog = false
                 }
             )
@@ -372,7 +378,7 @@ fun PlotScreen(
                             isNetsPanelExpanded = isNetsPanelExpanded,
                             onToggleExpanded = { isNetsPanelExpanded = !isNetsPanelExpanded },
                             onToggleVector = {
-                                if (it == mathVec?.name) simulationViewModel.clearMath()
+                                if (it == mathVec?.name) simulationViewModel.toggleMathVisibility()
                                 else repository.toggleVectorActive(it)
                             },
                             onMeasureVector = { vec ->
@@ -399,7 +405,7 @@ fun PlotScreen(
                                     Icon(
                                         Icons.Default.Functions,
                                         contentDescription = "Math channel",
-                                        tint = if (showMathDialog || mathVec != null) MaterialTheme.colorScheme.primary else Color.White
+                                        tint = if (showMathDialog || (mathVec != null && mathVisible)) MaterialTheme.colorScheme.primary else Color.White
                                     )
                                 }
                                 IconButton(onClick = {
