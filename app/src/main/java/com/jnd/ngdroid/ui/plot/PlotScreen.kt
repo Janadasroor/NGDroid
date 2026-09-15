@@ -40,6 +40,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.data.SettingsRepository
 import com.jnd.ngdroid.domain.CalculateMeasurementsUseCase
@@ -79,6 +80,7 @@ fun PlotScreen(
 
     // Net Measurements Dialog
     var selectedMeasurements by remember { mutableStateOf<NetMeasurements?>(null) }
+    val textMeasurer = rememberTextMeasurer()
     val measureUseCase = remember { CalculateMeasurementsUseCase() }
     val exportUseCase = remember { ExportPlotUseCase() }
     val context = LocalContext.current
@@ -318,7 +320,8 @@ fun PlotScreen(
                                 panOffsetX += panChange.x
                                 panOffsetY += panChange.y
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
+                            textMeasurer = textMeasurer
                         )
 
                         NetsOverlay(

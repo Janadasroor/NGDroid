@@ -52,6 +52,8 @@ object NativeNgSpice {
 
     external fun nativeInit(callback: NgSpiceCallback): Boolean
     external fun nativeRunNetlist(netlist: Array<String>): Boolean
+    /** True while ngspice's background thread still runs (bg_run is async). */
+    external fun nativeIsRunning(): Boolean
     external fun nativeHalt(): Boolean
     external fun nativeResume(): Boolean
     external fun nativeCommand(cmd: String): Boolean

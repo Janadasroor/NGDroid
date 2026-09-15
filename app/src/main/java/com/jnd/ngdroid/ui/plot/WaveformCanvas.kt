@@ -7,6 +7,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextMeasurer
 import com.jnd.ngdroid.data.AppSettings
 import com.jnd.ngdroid.engine.VectorSeries
 
@@ -36,7 +37,8 @@ fun WaveformCanvas(
     onCursor1Move: (Float) -> Unit,
     onCursor2Move: (Float) -> Unit,
     onTransform: (zoomChange: Float, panChange: Offset) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    textMeasurer: TextMeasurer? = null
 ) {
     Canvas(
         modifier = modifier.pointerInput(Unit) {
@@ -56,7 +58,8 @@ fun WaveformCanvas(
             panOffsetY = panOffsetY,
             showCursors = showCursors,
             cursor1Frac = cursor1Frac,
-            cursor2Frac = cursor2Frac
+            cursor2Frac = cursor2Frac,
+            textMeasurer = textMeasurer
         )
     }
 }

@@ -266,16 +266,45 @@ class SimulationRepository(
             }
 
             val lines = _netlistText.value.lines().toTypedArray()
-            val success = NativeNgSpice.nativeRunNetlist(lines)
+            val started = NativeNgSpice.nativeRunNetlist(lines)
+
+            // bg_run returns as soon as the background thread launches —
+            // wait for real completion, flushing along the way, otherwise
+            // fast analyses (.ac) finish after our final flush and the
+            // viewer shows vector names with empty traces. ngspice can
+            // report not-running right after bg_run (stale callback) so
+            // only trust "not running" after having seen "running", with
+            // a 10 s start grace; hard cap 120 s.
+            if (started) {
+                val startMs = System.currentTimeMillis()
+                val deadline = startMs + 120_000L
+                val startGrace = startMs + 10_000L
+                var seenRunning = false
+                while (System.currentTimeMillis() < deadline) {
+                    val running = try {
+                        NativeNgSpice.nativeIsRunning()
+                    } catch (_: Throwable) {
+                        false
+                    }
+                    if (running) seenRunning = true
+                    flushVectorBuffersToState()
+                    if (seenRunning && !running) break
+                    if (!seenRunning && System.currentTimeMillis() > startGrace) break
+                    kotlinx.coroutines.delay(100)
+                }
+            }
 
             // Final flush of vector buffers when simulation completes
             flushVectorBuffersToState()
 
             _state.update {
+                // A user halt during the wait already settled the state —
+                // don't overwrite its "Halted" status with "Complete".
+                if (!it.isSimulating && it.isPaused) return@update it
                 it.copy(
                     isSimulating = false,
                     progressFraction = 1.0f,
-                    statusText = if (success) "Simulation Complete" else "Simulation Failed"
+                    statusText = if (started) "Simulation Complete" else "Simulation Failed"
                 )
             }
         }

@@ -5,6 +5,7 @@
 #include <dlfcn.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define LOG_TAG "NgSpiceJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -67,6 +68,7 @@ typedef char* (*ngSpice_CurPlot_t)();
 typedef char** (*ngSpice_AllPlots_t)();
 typedef char** (*ngSpice_AllVecs_t)(char *plotname);
 typedef vector_info* (*ngSpice_GetVecInfo_t)(char *vecname);
+typedef bool (*ngSpice_Running_t)();
 
 static ngSpice_Init_t p_ngSpice_Init = nullptr;
 static ngSpice_Command_t p_ngSpice_Command = nullptr;
@@ -75,6 +77,7 @@ static ngSpice_CurPlot_t p_ngSpice_CurPlot = nullptr;
 static ngSpice_AllPlots_t p_ngSpice_AllPlots = nullptr;
 static ngSpice_AllVecs_t p_ngSpice_AllVecs = nullptr;
 static ngSpice_GetVecInfo_t p_ngSpice_GetVecInfo = nullptr;
+static ngSpice_Running_t p_ngSpice_Running = nullptr;
 
 static JavaVM *g_vm = nullptr;
 static jobject g_callback_obj = nullptr;
@@ -82,6 +85,15 @@ static jmethodID g_on_log_method = nullptr;
 static jmethodID g_on_init_data_method = nullptr;
 static jmethodID g_on_data_method = nullptr;
 static jmethodID g_on_status_method = nullptr;
+
+/**
+ * True while ngspice's background thread runs a simulation. Set when
+ * bg_run is issued, cleared by the BGThreadRunning callback. The Kotlin
+ * side polls it so the final vector flush happens AFTER all data arrived
+ * (bg_run returns immediately; without the wait the plot ends up with
+ * vector names but empty traces — typical for fast .ac runs).
+ */
+static volatile bool g_bg_running = false;
 
 // Callbacks from ngspice
 static int cb_send_char(char *output, int ident, void *userdata) {
@@ -164,7 +176,11 @@ static int cb_send_data(pvecvaluesall vdata, int numvecs, int ident, void *userd
                 env->SetObjectArrayElement(name_array, i, name);
                 env->DeleteLocalRef(name);
             }
-            vals[i] = vec->creal;
+            // AC vectors are complex: plot the magnitude so traces are
+            // never an empty-looking bare real part. Transient/DC stay real.
+            vals[i] = vec->is_complex
+                ? sqrt(vec->creal * vec->creal + vec->cimag * vec->cimag)
+                : vec->creal;
         }
     }
     env->ReleaseDoubleArrayElements(val_array, vals, 0);
@@ -235,6 +251,7 @@ static int cb_send_init_data(pvecinfoall vinfo, int ident, void *userdata) {
 
 static int cb_bg_thread_running(bool running, int ident, void *userdata) {
     LOGI("[NGSPICE BG THREAD] Running: %d", running);
+    g_bg_running = running;
     return 0;
 }
 
@@ -271,6 +288,8 @@ Java_com_jnd_ngdroid_engine_NativeNgSpice_nativeInit(JNIEnv *env, jobject thiz, 
     p_ngSpice_AllPlots = (ngSpice_AllPlots_t)dlsym(handle, "ngSpice_AllPlots");
     p_ngSpice_AllVecs = (ngSpice_AllVecs_t)dlsym(handle, "ngSpice_AllVecs");
     p_ngSpice_GetVecInfo = (ngSpice_GetVecInfo_t)dlsym(handle, "ngSpice_GetVecInfo");
+    p_ngSpice_Running = (ngSpice_Running_t)dlsym(handle, "ngSpice_running");
+    LOGI("ngSpice_running %s", p_ngSpice_Running ? "available" : "MISSING");
 
     if (!p_ngSpice_Init || !p_ngSpice_Command || !p_ngSpice_Circ) {
         LOGE("Failed to find required ngspice symbols");
@@ -326,6 +345,11 @@ Java_com_jnd_ngdroid_engine_NativeNgSpice_nativeRunNetlist(JNIEnv *env, jobject 
     int ret_cmd = p_ngSpice_Command((char *)"bg_run");
     LOGI("ngSpice_Command bg_run returned: %d", ret_cmd);
 
+    // bg_run only launches the background thread: mark running so the
+    // Kotlin side waits for real completion (BGThreadRunning clears it).
+    if (ret_cmd == 0) {
+        g_bg_running = true;
+    }
     return (ret_cmd == 0) ? JNI_TRUE : JNI_FALSE;
 }
 
@@ -353,6 +377,15 @@ Java_com_jnd_ngdroid_engine_NativeNgSpice_nativeCommand(JNIEnv *env, jobject thi
     int ret = p_ngSpice_Command((char *)str);
     env->ReleaseStringUTFChars(cmd, str);
     return (ret == 0) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_jnd_ngdroid_engine_NativeNgSpice_nativeIsRunning(JNIEnv *env, jobject thiz) {
+    // Canonical polling API: false once the bg thread exits, including
+    // aborted runs (which don't always deliver a final status callback).
+    if (p_ngSpice_Running) return p_ngSpice_Running() ? JNI_TRUE : JNI_FALSE;
+    return g_bg_running ? JNI_TRUE : JNI_FALSE;
 }
 
 extern "C"
