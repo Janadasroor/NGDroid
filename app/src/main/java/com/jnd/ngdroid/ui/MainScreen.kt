@@ -161,7 +161,8 @@ fun MainScreen(
                     AppTab.CONSOLE -> ConsoleScreen(repository = repository)
                     AppTab.PLOT -> PlotScreen(
                         repository = repository,
-                        settingsRepository = settingsRepository
+                        settingsRepository = settingsRepository,
+                        simulationViewModel = simulationViewModel
                     )
                     AppTab.DATA -> DataScreen(
                         viewModel = simulationViewModel,

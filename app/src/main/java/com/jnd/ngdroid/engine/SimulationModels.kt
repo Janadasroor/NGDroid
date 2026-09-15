@@ -3,12 +3,14 @@ package com.jnd.ngdroid.engine
 data class VectorSeries(
     val name: String,
     val isScale: Boolean = false,
-    val values: List<Double> = emptyList()
+    val values: List<Double> = emptyList(),
+    /** Override auto V/A detection (used by math traces). Null = auto. */
+    val forceCurrent: Boolean? = null
 ) {
     val isCurrent: Boolean
-        get() = name.endsWith("#branch", ignoreCase = true) ||
+        get() = forceCurrent ?: (name.endsWith("#branch", ignoreCase = true) ||
                 name.startsWith("i(", ignoreCase = true) ||
-                name.startsWith("I(", ignoreCase = true)
+                name.startsWith("I(", ignoreCase = true))
 }
 
 data class SimulationPlot(

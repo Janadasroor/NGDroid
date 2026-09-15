@@ -2,6 +2,9 @@ package com.jnd.ngdroid.ui
 
 import android.app.Application
 import android.util.Log
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
@@ -448,6 +451,14 @@ class SimulationViewModel(
     fun toggleVectorActive(vecName: String) = repository.toggleVectorActive(vecName)
     fun clearLogs() = repository.clearLogs()
     fun restoreLogs(logs: List<String>) = repository.restoreLogs(logs)
+
+    // ---- Math channel (fx): the expression string only, evaluated lazily
+    // in PlotScreen. Survives tab switches (VM-scoped); re-resolves per plot.
+    var mathExpr: String? by mutableStateOf(null)
+
+    fun clearMath() {
+        mathExpr = null
+    }
 
     /**
      * Agent path: optionally apply [netlist], run, wait until settled

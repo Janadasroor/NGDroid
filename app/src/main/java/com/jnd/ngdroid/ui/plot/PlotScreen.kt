@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusWeak
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RestartAlt
@@ -47,6 +48,7 @@ import com.jnd.ngdroid.domain.CalculateMeasurementsUseCase
 import com.jnd.ngdroid.domain.ExportPlotUseCase
 import com.jnd.ngdroid.engine.NetMeasurements
 import com.jnd.ngdroid.engine.SimulationRepository
+import com.jnd.ngdroid.ui.SimulationViewModel
 import com.jnd.ngdroid.ui.plot.TraceColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -56,7 +58,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun PlotScreen(
     repository: SimulationRepository,
-    settingsRepository: SettingsRepository
+    settingsRepository: SettingsRepository,
+    simulationViewModel: SimulationViewModel
 ) {
     val state by repository.state.collectAsState()
     val settings by settingsRepository.settings.collectAsState()
@@ -81,6 +84,24 @@ fun PlotScreen(
     // Net Measurements Dialog
     var selectedMeasurements by remember { mutableStateOf<NetMeasurements?>(null) }
     val textMeasurer = rememberTextMeasurer()
+
+    // Math channel (fx): expression lives in the VM (survives tab switches);
+    // the trace itself is evaluated lazily here — never stored.
+    var showMathDialog by remember { mutableStateOf(false) }
+    val mathExpr = simulationViewModel.mathExpr
+    val mathVec = remember(plot, mathExpr) {
+        evalMathExpr(mathExpr.orEmpty(), plot?.dataVectors.orEmpty())
+    }
+    val allData = remember(plot, mathVec) {
+        val base = plot?.dataVectors.orEmpty()
+        if (mathVec != null) base + mathVec else base
+    }
+    val combinedActive = remember(state.activeVectors, mathVec) {
+        if (mathVec != null) state.activeVectors + mathVec.name else state.activeVectors
+    }
+    fun toggleMathDialog() {
+        showMathDialog = true
+    }
     val measureUseCase = remember { CalculateMeasurementsUseCase() }
     val exportUseCase = remember { ExportPlotUseCase() }
     val context = LocalContext.current
@@ -115,7 +136,7 @@ fun PlotScreen(
             scope.launch {
                 val uri = withContext(Dispatchers.IO) {
                     exportUseCase.savePng(
-                        context, cur, state.activeVectors, settings, currentViewState()
+                        context, cur, combinedActive, settings, currentViewState()
                     )
                 }
                 Toast.makeText(
@@ -147,7 +168,7 @@ fun PlotScreen(
         scope.launch {
             val uri = withContext(Dispatchers.IO) {
                 exportUseCase.savePng(
-                    context, cur, state.activeVectors, settings, currentViewState()
+                    context, cur, combinedActive, settings, currentViewState()
                 )
             }
             Toast.makeText(
@@ -178,7 +199,7 @@ fun PlotScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = plot?.title?.ifEmpty { "Simulation Waveforms" } ?: "Simulation Waveforms",
                         style = MaterialTheme.typography.titleMedium,
@@ -201,6 +222,13 @@ fun PlotScreen(
                             tint = if (showCursors) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    IconButton(onClick = { toggleMathDialog() }) {
+                        Icon(
+                            Icons.Default.Functions,
+                            contentDescription = "Math channel",
+                            tint = if (showMathDialog || mathVec != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
 
                     if (zoomScaleX != 1.0f || zoomScaleY != 1.0f || panOffsetX != 0.0f || panOffsetY != 0.0f) {
                         IconButton(onClick = {
@@ -220,7 +248,7 @@ fun PlotScreen(
                                 scope.launch {
                                     val ok = withContext(Dispatchers.IO) {
                                         exportUseCase.sharePng(
-                                            context, plot, state.activeVectors, settings, currentViewState()
+                                            context, plot, combinedActive, settings, currentViewState()
                                         )
                                     }
                                     if (!ok) {
@@ -235,7 +263,7 @@ fun PlotScreen(
                                     scope.launch {
                                         val ok = withContext(Dispatchers.IO) {
                                             exportUseCase.sharePng(
-                                                context, plot, state.activeVectors, settings, currentViewState()
+                                                context, plot, combinedActive, settings, currentViewState()
                                             )
                                         }
                                         if (!ok) {
@@ -272,6 +300,19 @@ fun PlotScreen(
             }
         }
 
+        // Math expression dialog: nets dropdown + free equation.
+        if (showMathDialog) {
+            MathExprDialog(
+                initial = mathExpr,
+                vectors = plot?.dataVectors.orEmpty(),
+                onDismiss = { showMathDialog = false },
+                onApply = {
+                    simulationViewModel.mathExpr = it
+                    showMathDialog = false
+                }
+            )
+        }
+
         // Main Plot Canvas Container
         Surface(
             modifier = Modifier
@@ -302,8 +343,8 @@ fun PlotScreen(
                     ) {
                         WaveformCanvas(
                             scaleVector = scaleVec,
-                            dataVectors = plot.dataVectors,
-                            activeVectors = state.activeVectors,
+                            dataVectors = allData,
+                            activeVectors = combinedActive,
                             settings = settings,
                             zoomScaleX = zoomScaleX,
                             zoomScaleY = zoomScaleY,
@@ -325,12 +366,15 @@ fun PlotScreen(
                         )
 
                         NetsOverlay(
-                            dataVectors = plot.dataVectors,
-                            activeVectors = state.activeVectors,
+                            dataVectors = allData,
+                            activeVectors = combinedActive,
                             isLandscape = isLandscape,
                             isNetsPanelExpanded = isNetsPanelExpanded,
                             onToggleExpanded = { isNetsPanelExpanded = !isNetsPanelExpanded },
-                            onToggleVector = { repository.toggleVectorActive(it) },
+                            onToggleVector = {
+                                if (it == mathVec?.name) simulationViewModel.clearMath()
+                                else repository.toggleVectorActive(it)
+                            },
                             onMeasureVector = { vec ->
                                 selectedMeasurements = measureUseCase(plot.scaleVector, vec)
                             }
@@ -349,6 +393,13 @@ fun PlotScreen(
                                         Icons.Default.CenterFocusWeak,
                                         contentDescription = "Cursors",
                                         tint = if (showCursors) MaterialTheme.colorScheme.primary else Color.White
+                                    )
+                                }
+                                IconButton(onClick = { toggleMathDialog() }) {
+                                    Icon(
+                                        Icons.Default.Functions,
+                                        contentDescription = "Math channel",
+                                        tint = if (showMathDialog || mathVec != null) MaterialTheme.colorScheme.primary else Color.White
                                     )
                                 }
                                 IconButton(onClick = {
@@ -376,8 +427,8 @@ fun PlotScreen(
                     if (!isLandscape) {
                         PlotLegend(
                             scaleName = scaleVec.name,
-                            dataVectors = plot.dataVectors,
-                            activeVectors = state.activeVectors,
+                            dataVectors = allData,
+                            activeVectors = combinedActive,
                             darkPlotBackground = settings.darkPlotBackground
                         )
                     }
