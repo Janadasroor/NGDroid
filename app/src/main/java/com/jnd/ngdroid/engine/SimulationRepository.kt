@@ -34,7 +34,12 @@ class SimulationRepository(
 
     private var isInitialized = false
 
-    // Thread-safe in-memory vector buffers for high-frequency streaming
+    // Thread-safe in-memory vector buffers for high-frequency streaming.
+    // All ngspice-callback state below is guarded by [dataLock]: callbacks
+    // arrive on ngspice threads while flush runs on Dispatchers.IO, so every
+    // read/write must hold the lock — otherwise scale/data lengths can skew
+    // mid-stream and the viewer shows mismatched traces.
+    private val dataLock = Any()
     private val vectorBuffers = ConcurrentHashMap<String, ArrayList<Double>>()
     private var activeScaleVectorName: String = "time"
     private var activePlotTitle: String = ""
@@ -45,7 +50,8 @@ class SimulationRepository(
     @Volatile
     private var lastUIUpdateTime = 0L
 
-    private val callback = object : NgSpiceCallback {
+    /** Visible for tests: lets JVM tests drive the JNI callback path. */
+    internal val callback = object : NgSpiceCallback {
         override fun onLog(msg: String) {
             val trimmed = msg.trim()
             if (trimmed.isNotEmpty()) {
@@ -55,67 +61,73 @@ class SimulationRepository(
                         trimmed.contains("non-convergence", ignoreCase = true) ||
                         trimmed.contains("unknown device", ignoreCase = true)
 
-                _state.update { current ->
-                    current.copy(
-                        logs = (current.logs + trimmed).takeLast(MAX_LOG_LINES),
-                        hasError = if (isError) true else current.hasError,
-                        errorMessage = if (isError) trimmed else current.errorMessage
-                    )
+                synchronized(dataLock) {
+                    _state.update { current ->
+                        current.copy(
+                            logs = (current.logs + trimmed).takeLast(MAX_LOG_LINES),
+                            hasError = if (isError) true else current.hasError,
+                            errorMessage = if (isError) trimmed else current.errorMessage
+                        )
+                    }
                 }
             }
         }
 
         override fun onInitData(scaleName: String, title: String, name: String, type: String, vecNames: Array<String>) {
-            activeScaleVectorName = if (scaleName.isNotEmpty()) scaleName else (vecNames.firstOrNull { it == "time" || it == "frequency" } ?: vecNames.firstOrNull() ?: "time")
-            activePlotTitle = title
-            activePlotName = name
-            activePlotType = type
-            activeVectorNames = vecNames.toList()
+            synchronized(dataLock) {
+                activeScaleVectorName = if (scaleName.isNotEmpty()) scaleName else (vecNames.firstOrNull { it == "time" || it == "frequency" } ?: vecNames.firstOrNull() ?: "time")
+                activePlotTitle = title
+                activePlotName = name
+                activePlotType = type
+                activeVectorNames = vecNames.toList()
 
-            vectorBuffers.clear()
-            vecNames.forEach { vname ->
-                vectorBuffers[vname] = ArrayList(1000)
-            }
+                vectorBuffers.clear()
+                vecNames.forEach { vname ->
+                    vectorBuffers[vname] = ArrayList(1000)
+                }
 
-            val scaleVec = VectorSeries(name = activeScaleVectorName, isScale = true, values = emptyList())
-            val dataVecs = vecNames.filter { it != activeScaleVectorName }.map { vname ->
-                VectorSeries(name = vname, isScale = false, values = emptyList())
-            }
+                val scaleVec = VectorSeries(name = activeScaleVectorName, isScale = true, values = emptyList())
+                val dataVecs = vecNames.filter { it != activeScaleVectorName }.map { vname ->
+                    VectorSeries(name = vname, isScale = false, values = emptyList())
+                }
 
-            val newPlot = SimulationPlot(
-                title = title,
-                plotName = name,
-                plotType = type,
-                scaleVector = scaleVec,
-                dataVectors = dataVecs
-            )
-
-            _state.update { current ->
-                current.copy(
-                    currentPlot = newPlot,
-                    activeVectors = dataVecs.map { it.name }.toSet(),
-                    totalPointCount = 0
+                val newPlot = SimulationPlot(
+                    title = title,
+                    plotName = name,
+                    plotType = type,
+                    scaleVector = scaleVec,
+                    dataVectors = dataVecs
                 )
+
+                _state.update { current ->
+                    current.copy(
+                        currentPlot = newPlot,
+                        activeVectors = dataVecs.map { it.name }.toSet(),
+                        totalPointCount = 0
+                    )
+                }
             }
         }
 
         override fun onData(vecNames: Array<String>, values: DoubleArray) {
             if (vecNames.isEmpty() || values.isEmpty()) return
 
-            vecNames.forEachIndexed { idx, vname ->
-                if (idx < values.size) {
-                    val buffer = vectorBuffers[vname] ?: ArrayList<Double>(1000).also { vectorBuffers[vname] = it }
-                    synchronized(buffer) {
+            synchronized(dataLock) {
+                // One callback = one point appended to every vector together,
+                // so a concurrent flush always sees consistent lengths.
+                vecNames.forEachIndexed { idx, vname ->
+                    if (idx < values.size) {
+                        val buffer = vectorBuffers[vname] ?: ArrayList<Double>(1000).also { vectorBuffers[vname] = it }
                         buffer.add(values[idx])
                     }
                 }
-            }
 
-            val now = System.currentTimeMillis()
-            // Throttle StateFlow updates to max 20 FPS (50ms) to ensure 100% smooth UI without ANR
-            if (now - lastUIUpdateTime > 50L) {
-                lastUIUpdateTime = now
-                flushVectorBuffersToState()
+                val now = System.currentTimeMillis()
+                // Throttle StateFlow updates to max 20 FPS (50ms) to ensure 100% smooth UI without ANR
+                if (now - lastUIUpdateTime > 50L) {
+                    lastUIUpdateTime = now
+                    flushVectorBuffersToState()
+                }
             }
         }
 
@@ -131,22 +143,21 @@ class SimulationRepository(
     }
 
     private fun flushVectorBuffersToState() {
-        val scaleBuf = vectorBuffers[activeScaleVectorName] ?: return
-        val scaleValuesCopy: List<Double>
-        synchronized(scaleBuf) {
-            scaleValuesCopy = ArrayList(scaleBuf)
-        }
+        // Single lock with the callbacks: buffers are copied atomically, so
+        // scale and data vectors always have consistent lengths. Reentrant
+        // (onData already holds the lock) — synchronized allows that.
+        synchronized(dataLock) {
+            val scaleBuf = vectorBuffers[activeScaleVectorName] ?: return
+            val scaleValuesCopy: List<Double> = ArrayList(scaleBuf)
 
-        val scaleVec = VectorSeries(name = activeScaleVectorName, isScale = true, values = scaleValuesCopy)
+            val scaleVec = VectorSeries(name = activeScaleVectorName, isScale = true, values = scaleValuesCopy)
 
-        val dataVecs = activeVectorNames.filter { it != activeScaleVectorName }.map { vname ->
-            val buf = vectorBuffers[vname]
-            val valsCopy: List<Double> = if (buf != null) {
-                synchronized(buf) { ArrayList(buf) }
-            } else emptyList()
+            val dataVecs = activeVectorNames.filter { it != activeScaleVectorName }.map { vname ->
+                val buf = vectorBuffers[vname]
+                val valsCopy: List<Double> = if (buf != null) ArrayList(buf) else emptyList()
 
-            VectorSeries(name = vname, isScale = false, values = valsCopy)
-        }
+                VectorSeries(name = vname, isScale = false, values = valsCopy)
+            }
 
         val updatedPlot = SimulationPlot(
             title = activePlotTitle,
@@ -178,6 +189,7 @@ class SimulationRepository(
                 plotHistory = prunedHistory
             )
         }
+        } // synchronized(dataLock)
     }
 
     private fun parseProgressFraction(status: String): Float? {

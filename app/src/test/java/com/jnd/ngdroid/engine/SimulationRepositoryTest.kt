@@ -68,4 +68,47 @@ class SimulationRepositoryTest {
         repository.clearLogs()
         assertTrue(repository.state.value.logs.isEmpty())
     }
+
+    @Test
+    fun concurrentCallbacks_keepScaleAndDataLengthsConsistent() {
+        val names = arrayOf("time", "v(in)", "v(out)")
+        repository.callback.onInitData("time", "t", "tran1", "transient", names)
+        // First onData always flushes (throttle starts at 0), so lengths match.
+        repository.callback.onData(names, doubleArrayOf(0.0, 0.0, 0.0))
+        var plot = repository.state.value.currentPlot!!
+        assertEquals(plot.scaleVector!!.values.size, plot.dataVectors[0].values.size)
+        assertEquals(plot.scaleVector!!.values.size, plot.dataVectors[1].values.size)
+
+        // Hammer the callback from 8 threads x 100 points each.
+        val threads = List(8) {
+            Thread {
+                repeat(100) { i ->
+                    repository.callback.onData(names, doubleArrayOf(i.toDouble(), i.toDouble(), i.toDouble()))
+                }
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join(10_000) }
+        // Let the 50ms throttle expire, then one final point forces a flush.
+        Thread.sleep(80)
+        repository.callback.onData(names, doubleArrayOf(-1.0, -1.0, -1.0))
+
+        plot = repository.state.value.currentPlot!!
+        assertEquals(1 + 8 * 100 + 1, plot.scaleVector!!.values.size)
+        assertEquals(plot.scaleVector!!.values.size, plot.dataVectors[0].values.size)
+        assertEquals(plot.scaleVector!!.values.size, plot.dataVectors[1].values.size)
+        assertEquals(1 + 8 * 100 + 1, repository.state.value.totalPointCount)
+    }
+
+    @Test
+    fun reinit_clearsBuffers() {
+        val names = arrayOf("time", "v(in)")
+        repository.callback.onInitData("time", "t", "tran1", "transient", names)
+        repository.callback.onData(names, doubleArrayOf(0.0, 1.0))
+        repository.callback.onInitData("frequency", "t2", "ac1", "ac", arrayOf("frequency", "v(out)"))
+        val plot = repository.state.value.currentPlot!!
+        assertEquals("frequency", plot.scaleVector!!.name)
+        assertTrue(plot.scaleVector!!.values.isEmpty())
+        assertEquals(0, repository.state.value.totalPointCount)
+    }
 }
