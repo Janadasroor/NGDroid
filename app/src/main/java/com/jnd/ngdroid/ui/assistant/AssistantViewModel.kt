@@ -45,8 +45,10 @@ import com.jnd.ngdroid.agent.LlmImage
 import com.jnd.ngdroid.data.ChatSession
 import com.jnd.ngdroid.data.NetworkMonitor
 import com.jnd.ngdroid.ui.settings.AssistantSettingsFacade
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -680,6 +682,7 @@ class AssistantViewModel(
         rt.job?.cancel()
         rt.job = null
         setChatThinking(id, false)
+        refreshWorkingIds()
     }
 
     private fun buildProvider(s: AgentSettings, key: String, model: String) = when (s.provider) {
@@ -995,6 +998,23 @@ class AssistantViewModel(
         editAndResend(lastUser.id, lastUser.text, simBridge)
     }
 
+    /**
+     * Records a user-stopped turn in agent history: the question plus a
+     * marker (never tool output the model didn't see answered). Keeps the
+     * next ask contextual without pretending work completed.
+     */
+    private fun recordStoppedTurn(id: String, enriched: String) {
+        val rt = runtime(id)
+        val alreadyRecorded = rt.history.lastOrNull()?.let {
+            it.role == ChatRole.USER && it.content == enriched
+        } == true
+        if (!alreadyRecorded) rt.history.add(ChatMessage(ChatRole.USER, enriched))
+        rt.history.add(
+            ChatMessage(ChatRole.ASSISTANT, "[stopped by user — no answer was produced]")
+        )
+        schedulePersistFor(id)
+    }
+
     /** Assembled per-turn agent pieces: tool registry + orchestrator + prompt. */
     private class AgentStack(val agent: AgentOrchestrator, val systemPrompt: String)
 
@@ -1141,6 +1161,14 @@ class AssistantViewModel(
                     systemPrompt = stack.systemPrompt,
                     userImages = userImages
                 )
+                if (!isActive) {
+                    // Stopped while parked in blocking IO: the late result
+                    // belongs to a dead turn. Adopt nothing — record the
+                    // question + marker so context stays coherent.
+                    recordStoppedTurn(id, enriched)
+                    appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = "Stopped."))
+                    return@launch
+                }
                 rt.history.add(ChatMessage(ChatRole.USER, enriched))
                 rt.history.add(ChatMessage(ChatRole.ASSISTANT, answer))
                 // The live bubble (if any) becomes the final answer so the
@@ -1152,6 +1180,14 @@ class AssistantViewModel(
                 } else {
                     appendToChat(id, ChatMsg(role = ChatRoleUi.ASSISTANT, text = finalText))
                 }
+            } catch (e: CancellationException) {
+                // User hit Stop: never a provider-error bubble. The question
+                // stays in agent history with a stopped marker so the next
+                // ask still has it in context; any partial text already on
+                // screen is left untouched.
+                recordStoppedTurn(id, enriched)
+                appendToChat(id, ChatMsg(role = ChatRoleUi.SYSTEM, text = "Stopped."))
+                throw e
             } catch (e: Exception) {
                 val friendly = AgentErrors.format(e.message, model)
                 if (liveId != null) {
