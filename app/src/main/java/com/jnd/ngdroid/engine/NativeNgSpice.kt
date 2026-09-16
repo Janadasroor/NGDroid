@@ -51,6 +51,12 @@ object NativeNgSpice {
     }
 
     external fun nativeInit(callback: NgSpiceCallback): Boolean
+    /**
+     * Point the process CWD at an app-private dir so libngspice's implicit
+     * temp files (new*.plt/.data, cider.log, ...) never land in the project
+     * root or sandbox root. Safe to call before [nativeInit].
+     */
+    external fun nativeSetWorkDir(path: String): Boolean
     external fun nativeRunNetlist(netlist: Array<String>): Boolean
     /** True while ngspice's background thread still runs (bg_run is async). */
     external fun nativeIsRunning(): Boolean

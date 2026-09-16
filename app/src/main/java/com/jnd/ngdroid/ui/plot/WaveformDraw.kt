@@ -14,10 +14,10 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import com.jnd.ngdroid.data.AppSettings
 import com.jnd.ngdroid.engine.VectorSeries
+import com.jnd.ngdroid.engine.decimateXY
 import kotlin.math.abs
 import kotlin.math.log10
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.pow
 
 /**
@@ -138,11 +138,20 @@ fun DrawScope.drawWaveform(
     val xRangeLog = if (xMaxLog > xMinLog) (xMaxLog - xMinLog) / zoomScaleX else 1.0
     val xRangeLinear = if (xMax > xMin) (xMax - xMin) / zoomScaleX else 1.0
 
-    // Compute Left Y-Axis bounds (Voltages / Default)
+    // Min-max decimated once per frame: bounds + path both run on the
+    // <=1500-point envelope instead of O(N) full scans per trace, and
+    // narrow spikes survive (plain i+=step stride aliases them away).
+    // Small traces pass through untouched.
+    val decimated = activeDataVecs.associate { vec ->
+        vec.name to decimateXY(scaleVector.values, vec.values)
+    }
+
+    // Compute Left Y-Axis bounds (Voltages / Default) on the decimated
+    // envelope — exact, since bucketing preserves global min/max.
     var yMinLeft = Double.MAX_VALUE
     var yMaxLeft = -Double.MAX_VALUE
     activeDataVecs.filter { !it.isCurrent || !isDualAxis }.forEach { vec ->
-        vec.values.forEach { v ->
+        decimated[vec.name]?.forEach { (_, v) ->
             if (v < yMinLeft) yMinLeft = v
             if (v > yMaxLeft) yMaxLeft = v
         }
@@ -157,7 +166,7 @@ fun DrawScope.drawWaveform(
     var yMaxRight = -Double.MAX_VALUE
     if (isDualAxis) {
         activeDataVecs.filter { it.isCurrent }.forEach { vec ->
-            vec.values.forEach { v ->
+            decimated[vec.name]?.forEach { (_, v) ->
                 if (v < yMinRight) yMinRight = v
                 if (v > yMaxRight) yMaxRight = v
             }
@@ -308,20 +317,19 @@ fun DrawScope.drawWaveform(
             val currentYMin = if (useRightAxis) yMinRight else yMinLeft
             val currentYRange = if (useRightAxis) yRangeRight else yRangeLeft
 
-            val count = min(scaleVector.values.size, vec.values.size)
-            val step = max(1, count / 1500)
+            val pts = decimated[vec.name]
+                ?: decimateXY(scaleVector.values, vec.values)
+            val count = pts.size
 
             var isFirst = true
-            var i = 0
-            while (i < count) {
-                val xVal = scaleVector.values[i]
-                val yVal = vec.values[i]
+            for ((xVal, yVal) in pts) {
 
                 // Non-finite samples (e.g. A/B divide-by-zero): break the
                 // path so the next valid sample starts a fresh segment.
+                // (Only reachable on small pass-through traces — decimation
+                // drops non-finite samples for large ones.)
                 if (!xVal.isFinite() || !yVal.isFinite()) {
                     isFirst = true
-                    i += step
                     continue
                 }
 
@@ -351,7 +359,6 @@ fun DrawScope.drawWaveform(
                     }
                 }
 
-                i += step
             }
 
             drawPath(

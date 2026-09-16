@@ -48,6 +48,13 @@ class SimulationViewModel(
     private var serviceWatcherStarted = false
 
     init {
+        // Direct ngspice's implicit temp files (new*.plt/.data, cider.log,
+        // dc-sweep.out) into an app-private dir instead of the process CWD.
+        runCatching {
+            val dir = java.io.File(getApplication<Application>().cacheDir, "spice_work")
+            if (!dir.exists()) dir.mkdirs()
+            repository.setWorkDir(dir.absolutePath)
+        }.onFailure { Log.w("SimulationViewModel", "spice_work setup failed", it) }
         viewModelScope.launch {
             try {
                 val draft = netlistStore.draftTextFlow.first()

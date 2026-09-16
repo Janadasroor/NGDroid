@@ -8,6 +8,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <errno.h>
 
 #define LOG_TAG "NgSpiceJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
@@ -486,6 +489,27 @@ Java_com_jnd_ngdroid_engine_NativeNgSpice_nativeCommand(JNIEnv *env, jobject thi
     const char *str = env->GetStringUTFChars(cmd, nullptr);
     int ret = p_ngSpice_Command((char *)str);
     env->ReleaseStringUTFChars(cmd, str);
+    return (ret == 0) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_jnd_ngdroid_engine_NativeNgSpice_nativeSetWorkDir(JNIEnv *env, jobject thiz, jstring path) {
+    // libngspice drops implicit temp files (new*.plt/.data, cider.log,
+    // dc-sweep.out) into the process CWD. Point CWD at an app-private dir
+    // so runs never litter the project root (desktop tests) or the app
+    // sandbox root (device). No-op safe to call before nativeInit.
+    if (!path) return JNI_FALSE;
+    const char *str = env->GetStringUTFChars(path, nullptr);
+    if (!str) return JNI_FALSE;
+    // Best-effort mkdir -p equivalent for a single level (Kotlin ensures
+    // the dir exists; this covers races where it was deleted).
+    mkdir(str, 0700);
+    int ret = chdir(str);
+    if (ret != 0) {
+        LOGE("nativeSetWorkDir: chdir(%s) failed: %s", str, strerror(errno));
+    }
+    env->ReleaseStringUTFChars(path, str);
     return (ret == 0) ? JNI_TRUE : JNI_FALSE;
 }
 

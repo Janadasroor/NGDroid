@@ -43,6 +43,27 @@ class SimulationRepository(
     private var isInitialized = false
 
     /**
+     * App-private dir for libngspice's implicit temp files (set via
+     * [NativeNgSpice.nativeSetWorkDir], applied before init and every run —
+     * ngspice resolves relative paths against the process CWD at run time).
+     * Null = leave CWD alone (JVM unit tests).
+     */
+    private var workDirPath: String? = null
+
+    /** Point ngspice file output at [path] (e.g. cacheDir/spice_work). */
+    fun setWorkDir(path: String) {
+        workDirPath = path
+        // Best-effort live apply; the pre-init / pre-run path in
+        // runSimulationLocked is canonical. Guarded: JVM tests have no lib.
+        runCatching { NativeNgSpice.nativeSetWorkDir(path) }
+    }
+
+    private fun ensureWorkDir() {
+        val path = workDirPath ?: return
+        runCatching { NativeNgSpice.nativeSetWorkDir(path) }
+    }
+
+    /**
      * Single-flight guard: ngspice has one background thread, so two
      * overlapping runs corrupt plots and interleave vector buffers.
      * [runMutex.tryLock] rejects a second Run while one is active instead
@@ -297,6 +318,7 @@ class SimulationRepository(
 
             if (!isInitialized) {
                 try {
+                    ensureWorkDir()
                     isInitialized = NativeNgSpice.nativeInit(callback)
                 } catch (e: UnsatisfiedLinkError) {
                     isInitialized = false
@@ -318,6 +340,9 @@ class SimulationRepository(
             }
 
             val lines = _netlistText.value.lines().toTypedArray()
+            // Re-apply CWD: anything since init (exports, pickers) may have
+            // changed it, and ngspice resolves temp files per-run.
+            ensureWorkDir()
             // Missing .so / torn-down bridge must fail the run, never kill
             // the IO coroutine silently.
             val started = try {

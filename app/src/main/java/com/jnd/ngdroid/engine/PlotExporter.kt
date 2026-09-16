@@ -22,7 +22,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.max
-import kotlin.math.min
 
 object PlotExporter {
 
@@ -118,8 +117,13 @@ object PlotExporter {
 
         var yMinLeft = Double.MAX_VALUE
         var yMaxLeft = -Double.MAX_VALUE
+        // Min-max decimated envelope (shared with on-screen drawWaveform):
+        // bounds + path on <=1500 points, exact global min/max, spikes kept.
+        val decimated = activeDataVecs.associate { vec ->
+            vec.name to decimateXY(scaleVec.values, vec.values)
+        }
         activeDataVecs.filter { !it.isCurrent || !isDualAxis }.forEach { vec ->
-            vec.values.forEach { v ->
+            decimated[vec.name]?.forEach { (_, v) ->
                 if (v < yMinLeft) yMinLeft = v
                 if (v > yMaxLeft) yMaxLeft = v
             }
@@ -133,7 +137,7 @@ object PlotExporter {
         var yMaxRight = -Double.MAX_VALUE
         if (isDualAxis) {
             activeDataVecs.filter { it.isCurrent }.forEach { vec ->
-                vec.values.forEach { v ->
+                decimated[vec.name]?.forEach { (_, v) ->
                     if (v < yMinRight) yMinRight = v
                     if (v > yMaxRight) yMaxRight = v
                 }
@@ -195,14 +199,14 @@ object PlotExporter {
             val currentYRange = if (useRightAxis) yRangeRight else yRangeLeft
 
             val path = android.graphics.Path()
-            val count = min(scaleVec.values.size, vec.values.size)
-            val step = max(1, count / 1500)
+            val pts = decimated[vec.name]
+                ?: decimateXY(scaleVec.values, vec.values)
             var first = true
-            var i = 0
-            while (i < count) {
-                val xVal = scaleVec.values[i]
-                val yVal = vec.values[i]
-
+            for ((xVal, yVal) in pts) {
+                if (!xVal.isFinite() || !yVal.isFinite()) {
+                    first = true
+                    continue
+                }
                 val px = if (isLogX) {
                     val logVal = kotlin.math.log10(max(1e-12, xVal))
                     padL + ((logVal - xMinLog) / xRangeLog * gw).toFloat() + scaleX
@@ -214,7 +218,6 @@ object PlotExporter {
                 if (px in (padL - 20f)..(padL + gw + 20f)) {
                     if (first) { path.moveTo(px, py); first = false } else path.lineTo(px, py)
                 }
-                i += step
             }
             canvas.drawPath(path, tracePaint)
         }
