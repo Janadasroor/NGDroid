@@ -17,6 +17,7 @@ import com.jnd.ngdroid.data.RecentFile
 import com.jnd.ngdroid.data.SavedNetlist
 import com.jnd.ngdroid.domain.RunSimulationUseCase
 import com.jnd.ngdroid.engine.SimulationRepository
+import com.jnd.ngdroid.agent.formatSample
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -516,10 +517,8 @@ class SimulationViewModel(
         val plot = s.currentPlot
         val vectors = mutableListOf<String>()
         val series = linkedMapOf<String, List<Double>>()
-        plot?.scaleVector?.let {
-            vectors.add(summarizeVector(it.name, it.values))
-            if (it.values.isNotEmpty()) series[it.name] = it.values
-        }
+        // Scale (time/freq ramp) stays summary-only; sampling it wastes tokens.
+        plot?.scaleVector?.let { vectors.add(summarizeVector(it.name, it.values)) }
         plot?.dataVectors?.forEach {
             vectors.add(summarizeVector(it.name, it.values))
             if (it.values.isNotEmpty()) series[it.name] = it.values
@@ -540,11 +539,14 @@ class SimulationViewModel(
 /** One-line per-vector summary: name + points + min/max/last. Pure. */
 internal fun summarizeVector(name: String, values: List<Double>): String {
     if (values.isEmpty()) return "$name: 0 points"
-    var min = values[0]
-    var max = values[0]
+    var min = Double.POSITIVE_INFINITY
+    var max = Double.NEGATIVE_INFINITY
     for (v in values) {
+        if (v.isNaN()) continue
         if (v < min) min = v
         if (v > max) max = v
     }
-    return "$name: ${values.size} pts min=$min max=$max last=${values.last()}"
+    if (min == Double.POSITIVE_INFINITY) min = Double.NaN
+    if (max == Double.NEGATIVE_INFINITY) max = Double.NaN
+    return "$name: ${values.size} pts min=${formatSample(min)} max=${formatSample(max)} last=${formatSample(values.last())}"
 }

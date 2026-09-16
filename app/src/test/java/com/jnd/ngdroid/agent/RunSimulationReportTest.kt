@@ -94,6 +94,12 @@ class RunSimulationReportTest {
         val down = downsampleSeries(big, 64)
         assertTrue(down.size <= 64)
         assertEquals(0.0, down.first(), 0.0)
+        assertEquals(999.0, down.last(), 0.0)
+    }
+
+    @Test
+    fun downsampleZeroReturnsEmpty() {
+        assertEquals(emptyList<Double>(), downsampleSeries(listOf(1.0, 2.0), 0))
     }
 
     @Test
@@ -106,6 +112,8 @@ class RunSimulationReportTest {
     fun formatSampleIsCompact() {
         assertEquals("0", formatSample(0.0))
         assertEquals("NaN", formatSample(Double.NaN))
+        assertEquals("Inf", formatSample(Double.POSITIVE_INFINITY))
+        assertEquals("-Inf", formatSample(Double.NEGATIVE_INFINITY))
         assertEquals("1.5", formatSample(1.5))
         assertTrue(formatSample(2.5e6).length <= 8)
     }
@@ -134,5 +142,20 @@ class RunSimulationReportTest {
             vectors = emptyList()
         )
         assertTrue("samples:" !in out)
+    }
+
+    @Test
+    fun reportCapsTraces() {
+        val series = (0 until 8).associate { "v$it" to listOf(1.0, 2.0) }
+        val out = formatSimulationReport(
+            statusText = "ok",
+            hasError = false,
+            errorMessage = null,
+            logs = emptyList(),
+            vectors = emptyList(),
+            series = series,
+            maxTraces = 6
+        )
+        assertTrue("+2 more traces omitted" in out)
     }
 }

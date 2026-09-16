@@ -176,6 +176,10 @@ const val DEFAULT_RUN_TIMEOUT_MS: Long = 30_000
  * is given, a downsampled numeric sample per vector (<= [maxPointsPerTrace]
  * points each) so the model can "see" waveform shape — resonance, ringing,
  * clipping — as tokens instead of pixels. Pure; JVM-testable.
+ *
+ * Samples are independent uniform subsamples per trace with the last point
+ * always preserved; do not index-align traces of different lengths.
+ * At most [maxTraces] traces are sampled; the rest are counted as omitted.
  */
 fun formatSimulationReport(
     statusText: String,
@@ -185,7 +189,8 @@ fun formatSimulationReport(
     vectors: List<String>,
     maxLogLines: Int = 40,
     series: Map<String, List<Double>> = emptyMap(),
-    maxPointsPerTrace: Int = 64
+    maxPointsPerTrace: Int = 64,
+    maxTraces: Int = 6
 ): String = buildString {
     append("status: ").append(statusText.ifBlank { "unknown" })
     if (hasError) append(" [ERROR]")
@@ -202,24 +207,32 @@ fun formatSimulationReport(
     }
     if (series.isNotEmpty()) {
         append("samples:\n")
-        series.forEach { (name, values) ->
+        val entries = series.entries.toList()
+        entries.take(maxOf(maxTraces, 0)).forEach { (name, values) ->
             append("- ").append(name.trim()).append(": ")
             append(downsampleSeries(values, maxPointsPerTrace).joinToString(", ", "[", "]") { formatSample(it) })
             append("\n")
         }
+        if (entries.size > maxOf(maxTraces, 0)) {
+            append("+${entries.size - maxOf(maxTraces, 0)} more traces omitted\n")
+        }
     }
 }
 
-/** Even stride downsampling to at most [maxPoints] points. Pure. */
+/** Even stride downsampling to at most [maxPoints] points, last point kept. Pure. */
 fun downsampleSeries(values: List<Double>, maxPoints: Int): List<Double> {
-    if (values.size <= maxPoints || maxPoints <= 1) return values.take(maxOf(maxPoints, 1))
+    if (maxPoints <= 0) return emptyList()
+    if (values.size <= maxPoints) return values.take(maxPoints)
+    if (maxPoints == 1) return listOf(values.last())
     val stride = values.size / maxPoints
-    return values.filterIndexed { i, _ -> i % stride == 0 }.take(maxPoints)
+    return values.filterIndexed { i, _ -> i % stride == 0 }.take(maxPoints - 1) + values.last()
 }
 
 /** Compact numeric sample for agent context (<=4 significant digits). Pure. */
 fun formatSample(v: Double): String = when {
-    !v.isFinite() -> "NaN"
+    v.isNaN() -> "NaN"
+    v == Double.POSITIVE_INFINITY -> "Inf"
+    v == Double.NEGATIVE_INFINITY -> "-Inf"
     v == 0.0 -> "0"
     else -> compactG("%.4g".format(java.util.Locale.US, v))
 }
@@ -237,5 +250,6 @@ fun compactG(s: String): String {
         val digits = exp.drop(1).trimStart('0').ifEmpty { "0" }
         exp = "-$digits"
     }
+    if (exp == "-0") exp = "0"
     return "${mant}e$exp"
 }
