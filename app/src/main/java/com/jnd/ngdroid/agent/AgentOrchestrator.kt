@@ -5,7 +5,11 @@ data class AgentConfig(
     /** Extra turns granted when the model ends with a promise but no payload. */
     val maxStubRetries: Int = 1,
     /** App-specific content policy (tool ids, stall phrases, nudge texts). */
-    val contentPolicy: AgentContentPolicy = AgentContentPolicy()
+    val contentPolicy: AgentContentPolicy = AgentContentPolicy(),
+    /** Retries per provider call for transient errors (timeout/429/5xx/stall). */
+    val maxErrorRetries: Int = 2,
+    /** Linear backoff base between error retries (× attempt, plus jitter). */
+    val errorRetryBaseDelayMs: Long = 2000L
 )
 
 /** App-specific content policy: which tools promise deliverables, which phrases read as stalls. */
@@ -124,6 +128,25 @@ const val EMPTY_FINAL_FALLBACK: String =
         "to retry; the tool results above are kept."
 
 /**
+ * False for failures no retry can fix (bad key, unsupported model/route):
+ * surfacing immediately beats burning quota and the user's time. Everything
+ * else (timeouts, resets, 429/5xx/400-route flakes, stalls) is worth
+ * another attempt. Pure.
+ */
+fun isRetryableError(message: String?): Boolean {
+    val low = message.orEmpty().lowercase()
+    if (low.isBlank()) return true
+    val fatal = listOf(
+        "autherror", "missing api key", "unauthorized", "invalid api key",
+        "http 401", "[401]", "(401)",
+        "missingsessionid", "modelerror", "is not supported",
+        // Rate limits need minutes, not seconds: fail fast with the lane
+        // guidance instead of burning attempts that will also 429.
+        " 429", "[429]", "(429)", "rate limit", "ratelimit", "freeusagelimit"
+    )
+    return fatal.none { it in low }
+}
+/**
  * True for HTTP 400/422 rejections. Gateways often return these without any
  * image/vision wording (e.g. `Upstream request failed: [400] Provider
  * returned error`), so they must count as vision rejections on their own
@@ -195,20 +218,17 @@ class AgentOrchestrator(
         var toolAttempted = false
         val forwardPartial: (String) -> Unit = { onEvent(AgentEvent.Partial(it)) }
 
-        while (iterations < config.maxIterations + stubRetries) {
-            iterations++
-            val req = LlmRequest(
-                systemPrompt = systemPrompt,
-                messages = conversation.toList(),
-                tools = llmTools
-            )
-            val resp: LlmResponse = try {
-                provider.streamChat(req, forwardPartial)
+        // Single provider attempt with the vision fallback baked in: a model
+        // rejecting images still answers from the text metadata. Throws on
+        // any failure the caller (fetchWithRetry) classifies.
+        suspend fun attemptCall(req: LlmRequest): LlmResponse {
+            try {
+                return provider.streamChat(req, forwardPartial)
             } catch (e: Exception) {
-                // Vision fallback: a model rejecting images should still answer
-                // from the text metadata instead of hard-failing. A 400/422 on
-                // an image-bearing request counts even without image wording —
-                // gateways often return bare `Upstream request failed: [400]`.
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                // A 400/422 on an image-bearing request counts as a vision
+                // rejection even without image wording — gateways often
+                // return bare `Upstream request failed: [400]`.
                 val msg = e.message.orEmpty()
                 val hasImages = conversation.any { it.images.isNotEmpty() }
                 if (hasImages && (isVisionRejection(msg) || isBadRequest(msg))) {
@@ -217,25 +237,54 @@ class AgentOrchestrator(
                             conversation[i] = conversation[i].copy(images = emptyList())
                         }
                     }
-                    try {
-                        provider.streamChat(
-                            LlmRequest(
-                                systemPrompt = systemPrompt,
-                                messages = conversation.toList(),
-                                tools = llmTools
-                            ),
-                            forwardPartial
-                        )
-                    } catch (e2: Exception) {
-                        onEvent(AgentEvent.Error("Provider error: ${e2.message}"))
-                        val friendly = errorFormatter(e2.message ?: e2.javaClass.simpleName)
-                        return finalAfterError(lastText, friendly, contentToolUsed, config.contentPolicy)
-                    }
-                } else {
-                    onEvent(AgentEvent.Error("Provider error: ${e.message}"))
-                    val friendly = errorFormatter(e.message ?: e.javaClass.simpleName)
-                    return finalAfterError(lastText, friendly, contentToolUsed, config.contentPolicy)
+                    return provider.streamChat(
+                        req.copy(messages = conversation.toList()),
+                        forwardPartial
+                    )
                 }
+                throw e
+            }
+        }
+
+        // Bounded retries with linear backoff for transient failures, so one
+        // blip (timeout, 429, 5xx, stall) doesn't kill the whole turn.
+        // Cancellation always propagates — Stop keeps working mid-backoff.
+        suspend fun fetchWithRetry(req: LlmRequest): LlmResponse {
+            var attempt = 0
+            while (true) {
+                try {
+                    return attemptCall(req)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    if (!isRetryableError(e.message) || attempt >= config.maxErrorRetries) throw e
+                    attempt++
+                    onEvent(
+                        AgentEvent.Error(
+                            "Request faltered — retrying ($attempt/${config.maxErrorRetries})…"
+                        )
+                    )
+                    val jitter = kotlin.random.Random.nextLong(0, 1000)
+                    kotlinx.coroutines.delay(config.errorRetryBaseDelayMs * attempt + jitter)
+                }
+            }
+        }
+
+        while (iterations < config.maxIterations + stubRetries) {
+            iterations++
+            val req = LlmRequest(
+                systemPrompt = systemPrompt,
+                messages = conversation.toList(),
+                tools = llmTools
+            )
+            val resp: LlmResponse = try {
+                fetchWithRetry(req)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                onEvent(AgentEvent.Error("Provider error: ${e.message}"))
+                val friendly = errorFormatter(e.message ?: e.javaClass.simpleName)
+                return finalAfterError(lastText, friendly, contentToolUsed, config.contentPolicy)
             }
             if (resp.text.isNotBlank()) lastText = resp.text
 
@@ -335,7 +384,7 @@ class AgentOrchestrator(
                 messages = conversation.toList(),
                 tools = emptyList()
             )
-            val finalResp = provider.streamChat(finalReq, forwardPartial)
+            val finalResp = fetchWithRetry(finalReq)
             val text = finalResp.text.ifBlank { lastText }
             if (text.isNotBlank()) onEvent(AgentEvent.Message(text))
             text.ifBlank { "Stopped after ${config.maxIterations} iterations without a final answer." }

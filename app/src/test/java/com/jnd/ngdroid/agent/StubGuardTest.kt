@@ -308,4 +308,96 @@ class StubGuardTest {
         assertEquals(EMPTY_FINAL_FALLBACK, out)
         assertEquals(2, provider.calls)
     }
+
+    // ---- error-retry policy ----
+
+    /** Fails [failures] times with [error], then answers. */
+    private class FlakyProvider(
+        val failures: Int,
+        val error: Throwable,
+        val answer: String = "Recovered answer"
+    ) : LlmProvider {
+        override val id = "test"
+        override val displayName = "Test"
+        override val defaultModel = "test"
+        var calls = 0
+        override suspend fun chat(req: LlmRequest): LlmResponse = throw AssertionError("no chat")
+        override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse {
+            calls++
+            if (calls <= failures) throw error
+            return LlmResponse(answer)
+        }
+        override suspend fun listModels(apiKey: String) = emptyList<String>()
+    }
+
+    @Test
+    fun transientErrorRetriesThenSucceeds() = runTest {
+        val provider = FlakyProvider(
+            1, IllegalStateException("timeout waiting for response")
+        )
+        val out = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, registry())
+            .run("hi?")
+        assertEquals("Recovered answer", out)
+        assertEquals(2, provider.calls)
+    }
+
+    @Test
+    fun fatalAuthErrorDoesNotRetry() = runTest {
+        val provider = FlakyProvider(
+            99, IllegalStateException("HTTP 401: AuthError Missing API key")
+        )
+        val out = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, registry())
+            .run("hi?", errorFormatter = { "FRIENDLY" })
+        assertEquals("FRIENDLY", out)
+        assertEquals(1, provider.calls)
+    }
+
+    @Test
+    fun persistentErrorExhaustsBudget() = runTest {
+        val provider = FlakyProvider(
+            99, IllegalStateException("HTTP 500: internal server error")
+        )
+        val out = AgentOrchestrator(
+            AgentConfig(maxIterations = 5, maxErrorRetries = 2, errorRetryBaseDelayMs = 10),
+            provider, registry()
+        ).run("hi?", errorFormatter = { "FRIENDLY" })
+        assertEquals("FRIENDLY", out)
+        assertEquals(3, provider.calls)
+    }
+
+    @Test
+    fun cancelPropagatesWithoutRetry() = runTest {
+        val provider = FlakyProvider(
+            99, kotlinx.coroutines.CancellationException("stopped")
+        )
+        var calls = 0
+        val counting = object : LlmProvider by provider {
+            override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse {
+                calls++
+                return provider.streamChat(req, onPartial)
+            }
+        }
+        try {
+            AgentOrchestrator(AgentConfig(maxIterations = 5), counting, registry()).run("hi?")
+            assertTrue("expected CancellationException", false)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // expected: Stop must never be swallowed or retried
+        }
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun retryableClassifier() {
+        assertTrue(isRetryableError("timeout waiting for response"))
+        assertTrue(isRetryableError("HTTP 500: internal server error"))
+        assertTrue(isRetryableError("Upstream request failed: [400] Provider returned error"))
+        assertTrue(isRetryableError("AI stream stalled (no data for 120 s)"))
+        assertTrue(isRetryableError(null))
+        assertFalse(isRetryableError("HTTP 401: AuthError Missing API key"))
+        assertFalse(isRetryableError("unauthorized"))
+        assertFalse(isRetryableError("model is not supported on this route"))
+        // Rate limits fail fast: retry-after is minutes, not seconds.
+        assertFalse(isRetryableError("HTTP 429: FreeUsageLimitError"))
+        assertFalse(isRetryableError("rate limit exceeded"))
+    }
 }
