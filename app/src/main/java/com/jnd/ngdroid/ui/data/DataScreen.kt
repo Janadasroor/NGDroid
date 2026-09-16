@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -59,6 +59,9 @@ import com.jnd.ngdroid.ui.theme.LocalAppSizes
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import kotlinx.coroutines.launch
 import java.util.Locale
+
+/** Phone tables window rows; full data stays available via CSV export/share. */
+private const val MAX_TABLE_ROWS = 2000
 
 @Composable
 fun DataScreen(
@@ -406,6 +409,11 @@ fun DataScreen(
                 val rowCount = scaleVec.values.size
                 // Single shared ScrollState so header and all rows scroll together.
                 val tableScrollState = rememberScrollState()
+                // Window the table: LazyColumn virtualizes, but the index list,
+                // per-cell formatting, and shared scroll state all scale with
+                // the row count — 100k-point transient runs jank/OOM a phone
+                // table. Full data stays available via CSV export/share.
+                val visibleRows = rowCount.coerceAtMost(MAX_TABLE_ROWS)
 
                 Column(
                     modifier = Modifier
@@ -428,11 +436,20 @@ fun DataScreen(
 
                     Spacer(Modifier.height(4.dp))
 
+                    if (rowCount > visibleRows) {
+                        Text(
+                            text = "Showing first $visibleRows of $rowCount rows — export CSV for the full table",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+
                     LazyColumn(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        itemsIndexed((0 until rowCount).toList(), key = { _, rowIndex -> rowIndex }) { index, rowIndex ->
-                            val isEven = index % 2 == 0
+                        items(visibleRows, key = { rowIndex -> rowIndex }) { rowIndex ->
+                            val isEven = rowIndex % 2 == 0
                             val bgColor = if (isEven) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant
 
                             Row(

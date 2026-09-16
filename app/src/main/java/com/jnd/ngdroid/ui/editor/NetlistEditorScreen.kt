@@ -2,6 +2,7 @@ package com.jnd.ngdroid.ui.editor
 
 import android.widget.Toast
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -802,14 +803,22 @@ fun NetlistEditorScreen(
                 component = MaterialTheme.colorScheme.tertiary,
                 number = MaterialTheme.colorScheme.secondary
             )
-            val highlighted = remember(netlist, spiceColors) {
-                highlightNetlist(netlist, spiceColors)
+            // Debounce the 4-pass regex highlight: typing updates the plain
+            // text immediately, the expensive annotate runs 250 ms after the
+            // last keystroke instead of on every one.
+            var debouncedNetlist by remember { mutableStateOf(netlist) }
+            androidx.compose.runtime.LaunchedEffect(netlist) {
+                kotlinx.coroutines.delay(250)
+                debouncedNetlist = netlist
+            }
+            val highlighted = remember(debouncedNetlist, spiceColors) {
+                highlightNetlist(debouncedNetlist, spiceColors)
             }
             // Keep editing state independent so the cursor doesn't jump to the end
             // on every keystroke; only resync when the underlying netlist text
             // actually changed externally (typing, preset/library load, paste).
             var fieldValue by remember { mutableStateOf(TextFieldValue("")) }
-            androidx.compose.runtime.LaunchedEffect(netlist, highlighted) {
+            androidx.compose.runtime.LaunchedEffect(netlist, highlighted, debouncedNetlist) {
                 if (fieldValue.text != netlist) {
                     val sel = fieldValue.selection
                     val newSel = if (fieldValue.text.isEmpty()) {
@@ -820,8 +829,13 @@ fun NetlistEditorScreen(
                             sel.end.coerceIn(0, netlist.length)
                         )
                     }
-                    fieldValue = TextFieldValue(highlighted, newSel)
-                } else if (fieldValue.annotatedString != highlighted) {
+                    // External load/paste: highlight synchronously so the fresh
+                    // text never flashes stale spans; typing path keeps the
+                    // plain typed text until the debounce catches up.
+                    val fresh = if (debouncedNetlist == netlist) highlighted
+                    else highlightNetlist(netlist, spiceColors)
+                    fieldValue = TextFieldValue(fresh, newSel)
+                } else if (debouncedNetlist == netlist && fieldValue.annotatedString != highlighted) {
                     fieldValue = fieldValue.copy(annotatedString = highlighted)
                 }
             }
@@ -831,6 +845,9 @@ fun NetlistEditorScreen(
                     .fillMaxWidth()
                     .weight(1f)
             ) {
+                // Shared vertical scroll state: editor text and line-number
+                // gutter scroll together so lines stay aligned.
+                val vScroll = rememberScrollState()
                 if (settings.showLineNumbers) {
                     val lineCount = maxOf(1, netlist.lines().size)
                     val lineNumbersText = (1..lineCount).joinToString("\n")
@@ -848,7 +865,9 @@ fun NetlistEditorScreen(
                                 textAlign = TextAlign.End,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                             ),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp, vertical = 16.dp)
+                                .verticalScroll(vScroll)
                         )
                     }
                 }
@@ -868,6 +887,7 @@ fun NetlistEditorScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .verticalScroll(vScroll)
                                 .let { m ->
                                     if (wrapText) m
                                     else m.horizontalScroll(scroll)

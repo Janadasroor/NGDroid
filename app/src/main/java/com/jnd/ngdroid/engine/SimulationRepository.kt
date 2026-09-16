@@ -357,6 +357,12 @@ class SimulationRepository(
                 } catch (_: Throwable) {
                     false
                 }
+                if (timedOut) {
+                    // Never leave the bg thread running: the next ngSpice_Circ
+                    // while it runs is undefined, and the single-flight guard
+                    // would reject re-runs with "already running".
+                    runCatching { NativeNgSpice.nativeHalt() }
+                }
             }
 
             // Final flush of vector buffers when simulation completes
@@ -382,8 +388,15 @@ class SimulationRepository(
                         logs = appendLog(
                             it.logs,
                             "[ERROR] Simulation timed out after ${RUN_TIMEOUT_MS / 1000} s " +
-                                "and was left running in the background; halt it before re-running."
+                                "and was halted automatically."
                         )
+                    )
+                    // Error lines arrived but ngspice still finished: report
+                    // honestly instead of a clean "Complete".
+                    it.hasError -> it.copy(
+                        isSimulating = false,
+                        progressFraction = 1.0f,
+                        statusText = "Simulation Completed with Errors"
                     )
                     else -> it.copy(
                         isSimulating = false,
