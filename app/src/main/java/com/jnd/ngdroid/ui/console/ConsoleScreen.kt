@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,8 +31,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -102,6 +105,24 @@ fun ConsoleScreen(repository: SimulationRepository) {
                 }
 
                 Row {
+                    // Operating-point table (last Node/Voltage block in logs).
+                    val opPoint = remember(state.logs) {
+                        com.jnd.ngdroid.engine.parseOperatingPoint(state.logs)
+                    }
+                    var showOp by remember { mutableStateOf(false) }
+                    if (opPoint != null) {
+                        IconButton(onClick = { showOp = true }) {
+                            Icon(
+                                Icons.Default.TableChart,
+                                contentDescription = "Operating point",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (showOp && opPoint != null) {
+                        OperatingPointDialog(op = opPoint, onDismiss = { showOp = false })
+                    }
+
                     // Share Logs Button
                     if (state.logs.isNotEmpty()) {
                         IconButton(onClick = {
