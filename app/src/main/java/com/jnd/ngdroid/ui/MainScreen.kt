@@ -49,8 +49,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -74,6 +76,20 @@ enum class AppTab(val title: String) {
     DATA("Data"),
     ASSISTANT("Assistant"),
     SETTINGS("Settings")
+}
+
+/**
+ * Keeps a tab in composition while hidden: measures 0x0 (no layout/draw
+ * cost) so every remember* state — scroll positions, lazy lists, text
+ * fields, dialogs — survives tab switches while the app runs.
+ */
+private fun Modifier.keepComposed(visible: Boolean): Modifier = layout { measurable, constraints ->
+    if (!visible) {
+        layout(0, 0) {}
+    } else {
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -100,9 +116,16 @@ fun MainScreen(
     // Inner handlers (drawer, dialogs) consume first — this is the fallback.
     val context = LocalContext.current
     var lastBackPress by remember { mutableLongStateOf(0L) }
+    // Tab switch keeps every screen composed (scroll/focus/dialog state
+    // preserved) and drops IME focus so a hidden field keeps no keyboard.
+    val focusManager = LocalFocusManager.current
+    val selectTab: (AppTab) -> Unit = { tab ->
+        focusManager.clearFocus(force = true)
+        selectedTab = tab
+    }
     BackHandler(enabled = true) {
         if (selectedTab != AppTab.EDITOR) {
-            selectedTab = AppTab.EDITOR
+            selectTab(AppTab.EDITOR)
         } else {
             val now = System.currentTimeMillis()
             if (now - lastBackPress < 2000) {
@@ -179,7 +202,7 @@ fun MainScreen(
                         tabs.forEach { (tab, icon) ->
                             NavigationBarItem(
                                 selected = selectedTab == tab,
-                                onClick = { selectedTab = tab },
+                                onClick = { selectTab(tab) },
                                 icon = { Icon(icon, contentDescription = tab.title) },
                                 label = {
                                     Text(
@@ -197,12 +220,21 @@ fun MainScreen(
             }
         ) { innerPadding ->
             // Keyed so rotation (bar <-> rail) keeps screen state, not resets it.
+            // Every tab stays composed (hidden ones measure 0x0), so scroll
+            // positions and UI state survive tab switches while running.
             val tabContent: @Composable () -> Unit = {
-                when (selectedTab) {
+                AppTab.entries.forEach { tab ->
+                    key(tab) {
+                        androidx.compose.foundation.layout.Box(
+                            Modifier
+                                .fillMaxSize()
+                                .keepComposed(selectedTab == tab)
+                        ) {
+                            when (tab) {
                     AppTab.EDITOR -> NetlistEditorScreen(
                         viewModel = simulationViewModel,
                         settingsRepository = settingsRepository,
-                        onNavigateToPlot = { selectedTab = AppTab.PLOT }
+                        onNavigateToPlot = { selectTab(AppTab.PLOT) }
                     )
                     AppTab.CONSOLE -> ConsoleScreen(repository = repository)
                     AppTab.PLOT -> PlotScreen(
@@ -229,9 +261,9 @@ fun MainScreen(
                             simulationViewModel.renderPlotThumbnail(requested)
                         },
                         onCurrentNetlist = { simulationViewModel.currentNetlistText() },
-                        onNavigateToEditor = { selectedTab = AppTab.EDITOR },
-                        onNavigateToPlot = { selectedTab = AppTab.PLOT },
-                        onNavigateToSettings = { selectedTab = AppTab.SETTINGS }
+                        onNavigateToEditor = { selectTab(AppTab.EDITOR) },
+                        onNavigateToPlot = { selectTab(AppTab.PLOT) },
+                        onNavigateToSettings = { selectTab(AppTab.SETTINGS) }
                     )
                     AppTab.SETTINGS -> SettingsScreen(
                         settingsRepository = settingsRepository,
@@ -239,6 +271,9 @@ fun MainScreen(
                         assistant = assistantViewModel,
                         renderPreview = { com.jnd.ngdroid.ui.assistant.AssistantMarkdownWithMath(it) }
                     )
+                            }
+                        }
+                    }
                 }
             }
             // Rail + fullscreen bleed edge-to-edge so the side container
@@ -266,7 +301,7 @@ fun MainScreen(
                                     tabs.forEach { (tab, icon) ->
                                         NavigationRailItem(
                                             selected = selectedTab == tab,
-                                            onClick = { selectedTab = tab },
+                                            onClick = { selectTab(tab) },
                                             icon = { Icon(icon, contentDescription = tab.title) },
                                             label = { Text(tab.title) },
                                             modifier = Modifier.width(80.dp)
