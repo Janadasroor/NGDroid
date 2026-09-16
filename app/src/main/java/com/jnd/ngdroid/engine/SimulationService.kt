@@ -42,7 +42,19 @@ class SimulationService : Service() {
             val intent = Intent(context, SimulationService::class.java).apply {
                 action = ACTION_STOP
             }
-            context.startService(intent)
+            // startService() from the background throws on API 26+; fall
+            // back to a direct stopService() which needs no launch.
+            try {
+                if (Build.VERSION.SDK_INT >= 26) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (_: IllegalStateException) {
+                try {
+                    context.stopService(Intent(context, SimulationService::class.java))
+                } catch (_: Exception) { }
+            }
         }
     }
 
@@ -58,8 +70,8 @@ class SimulationService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            else -> {
-                val title = intent?.getStringExtra(EXTRA_TITLE).orEmpty()
+            ACTION_START -> {
+                val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
                 NotificationHelper.ensureChannel(this)
                 val notification = NotificationCompat.Builder(this, NotificationHelper.CHANNEL_ID)
                     .setContentTitle("Simulating${if (title.isNotBlank()) " — $title" else ""}")
@@ -70,7 +82,13 @@ class SimulationService : Service() {
                     .build()
                 startForeground(NOTIFICATION_ID, notification)
                 watchProgress(title)
-                return START_STICKY
+                return START_NOT_STICKY
+            }
+            // OS restart (null intent) or unknown action: never linger as a
+            // foreground service with a stale progress loop.
+            else -> {
+                stopSelf()
+                return START_NOT_STICKY
             }
         }
     }

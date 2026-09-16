@@ -3,12 +3,14 @@ package com.jnd.ngdroid.engine
 import com.jnd.ngdroid.data.PresetNetlists
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import java.util.concurrent.ConcurrentHashMap
 
 class SimulationRepository(
@@ -39,6 +41,15 @@ class SimulationRepository(
     val state: StateFlow<SimulationState> = _state.asStateFlow()
 
     private var isInitialized = false
+
+    /**
+     * Single-flight guard: ngspice has one background thread, so two
+     * overlapping runs corrupt plots and interleave vector buffers.
+     * [runMutex.tryLock] rejects a second Run while one is active instead
+     * of queueing it behind the live run.
+     */
+    private val runMutex = Mutex()
+    private var runJob: Job? = null
 
     // Thread-safe in-memory vector buffers for high-frequency streaming.
     // All ngspice-callback state below is guarded by [dataLock]: callbacks
@@ -248,7 +259,30 @@ class SimulationRepository(
     }
 
     fun runSimulation() {
-        scope.launch(Dispatchers.IO) {
+        // Fast-reject a second Run while one is live or paused — ngspice's
+        // single bg thread cannot serve two. tryLock closes the tap-race
+        // where isSimulating hasn't flipped yet.
+        if (!runMutex.tryLock()) {
+            _state.update { current ->
+                current.copy(
+                    logs = appendLog(
+                        current.logs,
+                        "[WARN] Simulation already running — halt or stop it before re-running."
+                    )
+                )
+            }
+            return
+        }
+        runJob = scope.launch(Dispatchers.IO) {
+            try {
+                runSimulationLocked()
+            } finally {
+                runMutex.unlock()
+            }
+        }
+    }
+
+    private suspend fun runSimulationLocked() {
             _state.update {
                 it.copy(
                     isSimulating = true,
@@ -280,11 +314,17 @@ class SimulationRepository(
 
             if (!isInitialized) {
                 runFallbackSimulation(_netlistText.value)
-                return@launch
+                return
             }
 
             val lines = _netlistText.value.lines().toTypedArray()
-            val started = NativeNgSpice.nativeRunNetlist(lines)
+            // Missing .so / torn-down bridge must fail the run, never kill
+            // the IO coroutine silently.
+            val started = try {
+                NativeNgSpice.nativeRunNetlist(lines)
+            } catch (_: Throwable) {
+                false
+            }
 
             // bg_run returns as soon as the background thread launches —
             // wait for real completion, flushing along the way, otherwise
@@ -352,14 +392,13 @@ class SimulationRepository(
                     )
                 }
             }
-        }
     }
 
     fun haltSimulation() {
         scope.launch(Dispatchers.IO) {
             if (isInitialized) {
-                NativeNgSpice.nativeHalt()
-                flushVectorBuffersToState()
+                runCatching { NativeNgSpice.nativeHalt() }
+                runCatching { flushVectorBuffersToState() }
                 _state.update {
                     it.copy(
                         isSimulating = false,
@@ -380,8 +419,8 @@ class SimulationRepository(
     fun stopSimulation() {
         scope.launch(Dispatchers.IO) {
             if (isInitialized) {
-                NativeNgSpice.nativeHalt()
-                flushVectorBuffersToState()
+                runCatching { NativeNgSpice.nativeHalt() }
+                runCatching { flushVectorBuffersToState() }
                 _state.update {
                     it.copy(
                         isSimulating = false,
@@ -406,7 +445,7 @@ class SimulationRepository(
     fun resumeSimulation() {
         scope.launch(Dispatchers.IO) {
             if (isInitialized && _state.value.isPaused) {
-                NativeNgSpice.nativeResume()
+                runCatching { NativeNgSpice.nativeResume() }
                 _state.update {
                     it.copy(
                         isSimulating = true,

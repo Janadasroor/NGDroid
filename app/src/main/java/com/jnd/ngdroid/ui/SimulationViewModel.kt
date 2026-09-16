@@ -497,7 +497,9 @@ class SimulationViewModel(
             // Give runSimulation()'s IO coroutine a moment to flip isSimulating on.
             kotlinx.coroutines.delay(300)
             var waited = 0L
-            while (repository.state.value.isSimulating &&
+            // A paused run is still live: waiting on isSimulating alone
+            // returns a partial report the moment the user pauses.
+            while ((repository.state.value.isSimulating || repository.state.value.isPaused) &&
                 android.os.SystemClock.elapsedRealtime() < deadline
             ) {
                 kotlinx.coroutines.delay(200)

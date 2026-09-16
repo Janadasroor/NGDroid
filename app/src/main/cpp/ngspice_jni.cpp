@@ -1,6 +1,8 @@
 #include <jni.h>
 #include <string>
 #include <vector>
+#include <atomic>
+#include <mutex>
 #include <android/log.h>
 #include <dlfcn.h>
 #include <stdlib.h>
@@ -80,11 +82,17 @@ static ngSpice_GetVecInfo_t p_ngSpice_GetVecInfo = nullptr;
 static ngSpice_Running_t p_ngSpice_Running = nullptr;
 
 static JavaVM *g_vm = nullptr;
+// Guarded by g_cb_mutex: ngspice callbacks read these on bg threads while
+// nativeInit() swaps them on the UI thread.
+static std::mutex g_cb_mutex;
 static jobject g_callback_obj = nullptr;
 static jmethodID g_on_log_method = nullptr;
 static jmethodID g_on_init_data_method = nullptr;
 static jmethodID g_on_data_method = nullptr;
 static jmethodID g_on_status_method = nullptr;
+// Cached java/lang/String global ref (bootstrap class: safe to cache in
+// JNI_OnLoad). Avoids a FindClass + local-ref churn on every data callback.
+static jclass g_string_class = nullptr;
 
 /**
  * True while ngspice's background thread runs a simulation. Set when
@@ -92,13 +100,17 @@ static jmethodID g_on_status_method = nullptr;
  * side polls it so the final vector flush happens AFTER all data arrived
  * (bg_run returns immediately; without the wait the plot ends up with
  * vector names but empty traces — typical for fast .ac runs).
+ * atomic: written by ngspice bg threads, read by the Kotlin poll thread.
  */
-static volatile bool g_bg_running = false;
+static std::atomic<bool> g_bg_running{false};
 
-// Callbacks from ngspice
+// Callbacks from ngspice. The callback lock is held for the whole JNI
+// section: nativeInit() may swap/delete the global ref on the UI thread,
+// so snapshotting without holding it would still race the use.
 static int cb_send_char(char *output, int ident, void *userdata) {
     if (!output) return 0;
     LOGI("[NGSPICE LOG] %s", output);
+    std::lock_guard<std::mutex> lock(g_cb_mutex);
     if (!g_vm || !g_callback_obj || !g_on_log_method) return 0;
 
     JNIEnv *env = nullptr;
@@ -112,6 +124,15 @@ static int cb_send_char(char *output, int ident, void *userdata) {
     }
 
     jstring jmsg = env->NewStringUTF(output);
+    // Non-UTF8 bytes make NewStringUTF return NULL with a pending
+    // exception — must not CallVoidMethod through it.
+    if (!jmsg || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (needs_detach) {
+            g_vm->DetachCurrentThread();
+        }
+        return 0;
+    }
     env->CallVoidMethod(g_callback_obj, g_on_log_method, jmsg);
     env->DeleteLocalRef(jmsg);
 
@@ -123,6 +144,7 @@ static int cb_send_char(char *output, int ident, void *userdata) {
 
 static int cb_send_stat(char *status, int ident, void *userdata) {
     if (!status) return 0;
+    std::lock_guard<std::mutex> lock(g_cb_mutex);
     if (!g_vm || !g_callback_obj || !g_on_status_method) return 0;
 
     JNIEnv *env = nullptr;
@@ -136,6 +158,13 @@ static int cb_send_stat(char *status, int ident, void *userdata) {
     }
 
     jstring jstat = env->NewStringUTF(status);
+    if (!jstat || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (needs_detach) {
+            g_vm->DetachCurrentThread();
+        }
+        return 0;
+    }
     env->CallVoidMethod(g_callback_obj, g_on_status_method, jstat);
     env->DeleteLocalRef(jstat);
 
@@ -152,7 +181,8 @@ static int cb_controlled_exit(int exit_status, bool immediate, bool quit, int id
 
 static int cb_send_data(pvecvaluesall vdata, int numvecs, int ident, void *userdata) {
     if (!vdata || numvecs <= 0) return 0;
-    if (!g_vm || !g_callback_obj || !g_on_data_method) return 0;
+    std::lock_guard<std::mutex> lock(g_cb_mutex);
+    if (!g_vm || !g_callback_obj || !g_on_data_method || !g_string_class) return 0;
 
     JNIEnv *env = nullptr;
     bool needs_detach = false;
@@ -164,17 +194,39 @@ static int cb_send_data(pvecvaluesall vdata, int numvecs, int ident, void *userd
         }
     }
 
-    jobjectArray name_array = env->NewObjectArray(numvecs, env->FindClass("java/lang/String"), nullptr);
+    jobjectArray name_array = env->NewObjectArray(numvecs, g_string_class, nullptr);
     jdoubleArray val_array = env->NewDoubleArray(numvecs);
+    if (!name_array || !val_array || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (name_array) env->DeleteLocalRef(name_array);
+        if (val_array) env->DeleteLocalRef(val_array);
+        if (needs_detach) {
+            g_vm->DetachCurrentThread();
+        }
+        return 0;
+    }
 
     jdouble *vals = env->GetDoubleArrayElements(val_array, nullptr);
+    if (!vals) {
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        env->DeleteLocalRef(name_array);
+        env->DeleteLocalRef(val_array);
+        if (needs_detach) {
+            g_vm->DetachCurrentThread();
+        }
+        return 0;
+    }
     for (int i = 0; i < numvecs && i < vdata->veccount; i++) {
         pvecvalues vec = vdata->vecsa[i];
         if (vec) {
             if (vec->name) {
                 jstring name = env->NewStringUTF(vec->name);
-                env->SetObjectArrayElement(name_array, i, name);
-                env->DeleteLocalRef(name);
+                if (name) {
+                    env->SetObjectArrayElement(name_array, i, name);
+                    env->DeleteLocalRef(name);
+                } else if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                }
             }
             // AC vectors are complex: plot the magnitude so traces are
             // never an empty-looking bare real part. Transient/DC stay real.
@@ -199,7 +251,8 @@ static int cb_send_data(pvecvaluesall vdata, int numvecs, int ident, void *userd
 static int cb_send_init_data(pvecinfoall vinfo, int ident, void *userdata) {
     if (!vinfo) return 0;
     LOGI("[NGSPICE INIT DATA] Plot: %s, Veccount: %d", vinfo->name ? vinfo->name : "null", vinfo->veccount);
-    if (!g_vm || !g_callback_obj || !g_on_init_data_method) return 0;
+    std::lock_guard<std::mutex> lock(g_cb_mutex);
+    if (!g_vm || !g_callback_obj || !g_on_init_data_method || !g_string_class) return 0;
 
     JNIEnv *env = nullptr;
     bool needs_detach = false;
@@ -225,13 +278,40 @@ static int cb_send_init_data(pvecinfoall vinfo, int ident, void *userdata) {
     jstring title = env->NewStringUTF(vinfo->title ? vinfo->title : "");
     jstring name = env->NewStringUTF(vinfo->name ? vinfo->name : "");
     jstring type = env->NewStringUTF(vinfo->type ? vinfo->type : "");
+    if (!scale_str || !title || !name || !type || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        if (scale_str) env->DeleteLocalRef(scale_str);
+        if (title) env->DeleteLocalRef(title);
+        if (name) env->DeleteLocalRef(name);
+        if (type) env->DeleteLocalRef(type);
+        if (needs_detach) {
+            g_vm->DetachCurrentThread();
+        }
+        return 0;
+    }
 
-    jobjectArray vec_names = env->NewObjectArray(vinfo->veccount, env->FindClass("java/lang/String"), nullptr);
+    jobjectArray vec_names = env->NewObjectArray(vinfo->veccount, g_string_class, nullptr);
+    if (!vec_names || env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(scale_str);
+        env->DeleteLocalRef(title);
+        env->DeleteLocalRef(name);
+        env->DeleteLocalRef(type);
+        if (vec_names) env->DeleteLocalRef(vec_names);
+        if (needs_detach) {
+            g_vm->DetachCurrentThread();
+        }
+        return 0;
+    }
     for (int i = 0; i < vinfo->veccount; i++) {
         if (vinfo->vecs && vinfo->vecs[i] && vinfo->vecs[i]->vecname) {
             jstring vname = env->NewStringUTF(vinfo->vecs[i]->vecname);
-            env->SetObjectArrayElement(vec_names, i, vname);
-            env->DeleteLocalRef(vname);
+            if (vname) {
+                env->SetObjectArrayElement(vec_names, i, vname);
+                env->DeleteLocalRef(vname);
+            } else if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+            }
         }
     }
 
@@ -258,22 +338,52 @@ static int cb_bg_thread_running(bool running, int ident, void *userdata) {
 extern "C"
 JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
     g_vm = vm;
+    // Cache java/lang/String once (bootstrap class loader: safe here) so
+    // the kHz data path never calls FindClass or churns local refs.
+    JNIEnv *env = nullptr;
+    if (vm->GetEnv((void **)&env, JNI_VERSION_1_6) == JNI_OK) {
+        jclass local = env->FindClass("java/lang/String");
+        if (local) {
+            g_string_class = (jclass)env->NewGlobalRef(local);
+            env->DeleteLocalRef(local);
+        }
+        if (env->ExceptionCheck()) env->ExceptionClear();
+    }
     return JNI_VERSION_1_6;
 }
 
 extern "C"
 JNIEXPORT jboolean JNICALL
 Java_com_jnd_ngdroid_engine_NativeNgSpice_nativeInit(JNIEnv *env, jobject thiz, jobject callback) {
-    if (g_callback_obj) {
-        env->DeleteGlobalRef(g_callback_obj);
-    }
-    g_callback_obj = env->NewGlobalRef(callback);
+    {
+        std::lock_guard<std::mutex> lock(g_cb_mutex);
+        if (g_callback_obj) {
+            env->DeleteGlobalRef(g_callback_obj);
+            g_callback_obj = nullptr;
+        }
+        g_callback_obj = env->NewGlobalRef(callback);
+        if (!g_callback_obj || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            g_callback_obj = nullptr;
+            return JNI_FALSE;
+        }
 
-    jclass callback_cls = env->GetObjectClass(callback);
-    g_on_log_method = env->GetMethodID(callback_cls, "onLog", "(Ljava/lang/String;)V");
-    g_on_init_data_method = env->GetMethodID(callback_cls, "onInitData", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)V");
-    g_on_data_method = env->GetMethodID(callback_cls, "onData", "([Ljava/lang/String;[D)V");
-    g_on_status_method = env->GetMethodID(callback_cls, "onStatus", "(Ljava/lang/String;)V");
+        jclass callback_cls = env->GetObjectClass(callback);
+        if (!callback_cls || env->ExceptionCheck()) {
+            env->ExceptionClear();
+            return JNI_FALSE;
+        }
+        g_on_log_method = env->GetMethodID(callback_cls, "onLog", "(Ljava/lang/String;)V");
+        g_on_init_data_method = env->GetMethodID(callback_cls, "onInitData", "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)V");
+        g_on_data_method = env->GetMethodID(callback_cls, "onData", "([Ljava/lang/String;[D)V");
+        g_on_status_method = env->GetMethodID(callback_cls, "onStatus", "(Ljava/lang/String;)V");
+        env->DeleteLocalRef(callback_cls);
+        if (env->ExceptionCheck()) env->ExceptionClear();
+        if (!g_on_log_method || !g_on_init_data_method || !g_on_data_method || !g_on_status_method) {
+            LOGE("nativeInit: callback method lookup failed");
+            return JNI_FALSE;
+        }
+    }
 
     void *handle = dlopen("libngspice.so", RTLD_NOW | RTLD_GLOBAL);
     if (!handle) {

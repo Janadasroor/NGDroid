@@ -30,7 +30,7 @@ class GeminiProvider(
 
     override suspend fun chat(req: LlmRequest): LlmResponse = withContext(Dispatchers.IO) {
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent"
-        val body = buildRequestJson(req.systemPrompt, req.messages, req.temperature, req.maxTokens)
+        val body = buildRequestJson(req.systemPrompt, req.messages, req.temperature, req.maxTokens, req.tools)
         val respBody = http(url, mapOf("x-goog-api-key" to apiKey, "Content-Type" to "application/json"), body)
         parseChatResponse(respBody)
     }
@@ -53,25 +53,56 @@ class GeminiProvider(
         system: String,
         messages: List<ChatMessage>,
         temp: Double,
-        maxTokens: Int
+        maxTokens: Int,
+        tools: List<LlmTool> = emptyList()
     ): String {
+        // TOOL messages carry no function name (only toolCallId); correlate
+        // them to the most recent unmatched ASSISTANT functionCall in order —
+        // the orchestrator always appends each tool result right after its call.
+        val pendingToolNames = ArrayDeque<String>()
         val contents = messages.map { m ->
-            val role = if (m.role == ChatRole.ASSISTANT) "model" else "user"
-            val text = if (m.role == ChatRole.SYSTEM) "SYSTEM: ${m.content}" else m.content
-            buildJsonObject {
-                put("role", JsonPrimitive(role))
-                val parts = mutableListOf<JsonObject>()
-                // Keep a text part even when empty so image-only turns stay valid.
-                parts.add(buildJsonObject { put("text", JsonPrimitive(text)) })
-                for (img in m.images.take(MAX_VISION_IMAGES)) {
-                    parts.add(buildJsonObject {
-                        put("inlineData", buildJsonObject {
-                            put("mimeType", JsonPrimitive(img.mimeType.ifBlank { "image/jpeg" }))
-                            put("data", JsonPrimitive(img.base64))
+            if (m.role == ChatRole.TOOL) {
+                val name = pendingToolNames.removeFirstOrNull().orEmpty()
+                buildJsonObject {
+                    put("role", JsonPrimitive("user"))
+                    put("parts", JsonArray(listOf(buildJsonObject {
+                        put("functionResponse", buildJsonObject {
+                            put("name", JsonPrimitive(name))
+                            put("response", buildJsonObject {
+                                put("result", JsonPrimitive(m.content))
+                            })
                         })
-                    })
+                    })))
                 }
-                put("parts", JsonArray(parts))
+            } else {
+                val role = if (m.role == ChatRole.ASSISTANT) "model" else "user"
+                val text = if (m.role == ChatRole.SYSTEM) "SYSTEM: ${m.content}" else m.content
+                buildJsonObject {
+                    put("role", JsonPrimitive(role))
+                    val parts = mutableListOf<JsonObject>()
+                    // Keep a text part even when empty so image-only turns stay valid.
+                    parts.add(buildJsonObject { put("text", JsonPrimitive(text)) })
+                    for (img in m.images.take(MAX_VISION_IMAGES)) {
+                        parts.add(buildJsonObject {
+                            put("inlineData", buildJsonObject {
+                                put("mimeType", JsonPrimitive(img.mimeType.ifBlank { "image/jpeg" }))
+                                put("data", JsonPrimitive(img.base64))
+                            })
+                        })
+                    }
+                    for (tc in m.toolCalls) {
+                        pendingToolNames.addLast(tc.name)
+                        parts.add(buildJsonObject {
+                            put("functionCall", buildJsonObject {
+                                put("name", JsonPrimitive(tc.name))
+                                val args = runCatching { json.parseToJsonElement(tc.argumentsJson) }
+                                    .getOrElse { JsonPrimitive(tc.argumentsJson) }
+                                put("args", args)
+                            })
+                        })
+                    }
+                    put("parts", JsonArray(parts))
+                }
             }
         }
         val root = buildJsonObject {
@@ -83,21 +114,37 @@ class GeminiProvider(
                 put("temperature", JsonPrimitive(temp))
                 put("maxOutputTokens", JsonPrimitive(maxTokens))
             })
+            if (tools.isNotEmpty()) {
+                put("tools", JsonArray(listOf(buildJsonObject {
+                    put("functionDeclarations", JsonArray(tools.map { buildFunctionDeclaration(it) }))
+                })))
+            }
         }
         return root.toString()
     }
 
+    /** Gemini `functionDeclarations` tool shape. Pure. */
+    private fun buildFunctionDeclaration(t: LlmTool): JsonObject = buildJsonObject {
+        put("name", JsonPrimitive(t.name))
+        put("description", JsonPrimitive(t.description))
+        val params = runCatching { json.parseToJsonElement(t.parametersJsonSchema) }.getOrElse {
+            buildJsonObject { put("type", JsonPrimitive("object")) }
+        }
+        put("parameters", params)
+    }
+
     /**
      * Streams `:streamGenerateContent` SSE chunks, accumulating part texts
-     * live. (Tool parity with chat(): this provider runs tool-less, so only
-     * text streams — functionCall parts are ignored like the sync path.)
+     * live. functionCall parts are collected (last args win per name) so the
+     * tool loop works like the other providers.
      */
     override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse =
         withContext(Dispatchers.IO) {
             val stream = streamHttp ?: return@withContext super.streamChat(req, onPartial)
             val url = "https://generativelanguage.googleapis.com/v1beta/models/$model:streamGenerateContent?alt=sse"
-            val body = buildRequestJson(req.systemPrompt, req.messages, req.temperature, req.maxTokens)
+            val body = buildRequestJson(req.systemPrompt, req.messages, req.temperature, req.maxTokens, req.tools)
             val text = StringBuilder()
+            val calls = linkedMapOf<String, String>()
             stream(url, mapOf("x-goog-api-key" to apiKey, "Content-Type" to "application/json"), body) { ev ->
                 val root = runCatching { json.parseToJsonElement(ev.data).jsonObject }
                     .getOrElse { return@stream }
@@ -109,15 +156,23 @@ class GeminiProvider(
                 root["candidates"]?.jsonArray?.firstOrNull()
                     ?.jsonObject?.get("content")?.jsonObject
                     ?.get("parts")?.jsonArray?.forEach { part ->
-                        (part.jsonObject["text"] as? JsonPrimitive)?.contentOrNull?.let {
+                        val obj = part.jsonObject
+                        (obj["text"] as? JsonPrimitive)?.contentOrNull?.let {
                             if (it.isNotEmpty()) {
                                 text.append(it)
                                 onPartial(text.toString())
                             }
                         }
+                        obj["functionCall"]?.jsonObject?.let { fn ->
+                            val name = fn["name"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                            calls[name] = fn["args"]?.toString() ?: "{}"
+                        }
                     }
             }
-            LlmResponse(text.toString(), emptyList())
+            LlmResponse(
+                text.toString(),
+                calls.map { (name, args) -> ToolCall(id = "", name = name, argumentsJson = args) }
+            )
         }
 
     fun parseChatResponse(bodyJson: String): LlmResponse {
@@ -127,7 +182,12 @@ class GeminiProvider(
         val content = candidates[0].jsonObject["content"]?.jsonObject ?: return LlmResponse("", emptyList())
         val parts = content["parts"]?.jsonArray ?: JsonArray(emptyList())
         val text = parts.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.contentOrNull }.joinToString("")
-        return LlmResponse(text, emptyList())
+        val toolCalls = parts.mapNotNull { part ->
+            val fn = part.jsonObject["functionCall"]?.jsonObject ?: return@mapNotNull null
+            val name = fn["name"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            ToolCall(id = "", name = name, argumentsJson = fn["args"]?.toString() ?: "{}")
+        }
+        return LlmResponse(text, toolCalls)
     }
 
     companion object {
