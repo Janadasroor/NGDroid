@@ -44,8 +44,21 @@ object AgentErrors {
             "model is unavailable" in low ->
                 "$name is temporarily unavailable on the free tier. " +
                     "Open the model menu above and pick another free model."
-            "rate limit" in low || "freeusagelimit" in low || "429" in low ->
-                "Free-tier limit reached. Wait a minute, then retry — or pick another free model."
+            "rate limit" in low || "freeusagelimit" in low || "429" in low -> {
+                // Keyless free models share one anonymous quota lane, which can
+                // be exhausted for a single model while others (and the CLI's
+                // authenticated lane) still work. Say which, and offer the key.
+                val id = model.trim().lowercase()
+                val anonymous = id.endsWith("-free") || id.endsWith(":free")
+                if (anonymous) {
+                    "The anonymous free lane for $name is exhausted right now " +
+                        "(other free models may still work). Wait a bit and retry, " +
+                        "pick another free model — or add your provider API key in " +
+                        "Settings → AI Assistant for your own quota, same as the CLI uses."
+                } else {
+                    "Free-tier limit reached. Wait a minute, then retry — or pick another free model."
+                }
+            }
             "missing api key" in low || "autherror" in low ||
                 "unauthorized" in low || "invalid api key" in low || "401" in low ->
                 "This model needs your API key (Settings → AI Assistant) — or pick a FREE model instead."

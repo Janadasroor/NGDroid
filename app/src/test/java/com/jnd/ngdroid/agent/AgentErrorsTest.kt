@@ -25,8 +25,25 @@ class AgentErrorsTest {
         val raw = "HTTP 429: {\"type\":\"error\",\"error\":{\"type\":\"FreeUsageLimitError\"," +
             "\"message\":\"Error from provider (Console): Rate limit exceeded.\"}}"
         val out = AgentErrors.format(raw, "mimo-v2.5-free")
-        assertTrue(out, out.contains("limit"))
+        assertTrue(out, out.contains("exhausted"))
         assertFalse(out, out.contains("{"))
+    }
+
+    @Test
+    fun freeModelLimitNamesLaneAndKeyOption() {
+        val raw = "{\"type\":\"error\",\"error\":{\"type\":\"FreeUsageLimitError\"," +
+            "\"message\":\"Error from provider (Console): Rate limit exceeded. Please try again later.\"}}"
+        val out = AgentErrors.format(raw, "mimo-v2.5-free")
+        assertTrue(out, out.contains("mimo-v2.5-free"))
+        assertTrue(out, out.contains("anonymous free lane"))
+        assertTrue(out, out.contains("API key"))
+    }
+
+    @Test
+    fun keyedModelLimitHasNoLaneTalk() {
+        val out = AgentErrors.format("HTTP 429 rate limit exceeded", "gpt-5")
+        assertTrue(out, out.contains("limit"))
+        assertFalse(out, out.contains("anonymous"))
     }
 
     @Test
