@@ -78,6 +78,10 @@ object AgentErrors {
             "upstream request failed" in low || "provider returned error" in low ->
                 "$name's upstream route failed this request (gateway 400). " +
                     "Tap Regenerate to retry — or pick another free model."
+            // Hung SSE stream tripped the stall watchdog in HttpClients.
+            "stalled" in low ->
+                "The AI stream stalled mid-reply (connection went quiet). " +
+                    "Tap Regenerate to retry — or pick another free model."
             else -> msg.take(200)
         }
     }

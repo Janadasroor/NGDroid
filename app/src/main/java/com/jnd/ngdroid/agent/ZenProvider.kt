@@ -12,7 +12,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
@@ -74,7 +73,7 @@ class ZenProvider(
         if (!sessionId.isNullOrBlank()) {
             builder.header("x-opencode-session", sessionId)
         }
-        val client = OkHttpClient()
+        val client = HttpClients.listModelsClient()
         client.newCall(builder.build()).execute().use { resp ->
             val body = resp.body?.string() ?: "{}"
             if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}: ${body.take(500)}")

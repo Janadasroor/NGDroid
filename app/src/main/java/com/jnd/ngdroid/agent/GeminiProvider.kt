@@ -11,7 +11,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 class GeminiProvider(
@@ -36,7 +35,7 @@ class GeminiProvider(
     }
 
     override suspend fun listModels(apiKey: String): List<String> = withContext(Dispatchers.IO) {
-        val client = OkHttpClient()
+        val client = HttpClients.listModelsClient()
         val request = Request.Builder()
             .url("https://generativelanguage.googleapis.com/v1beta/models")
             .header("x-goog-api-key", apiKey)

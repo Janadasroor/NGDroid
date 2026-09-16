@@ -12,7 +12,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
@@ -60,7 +59,7 @@ open class OpenAiProvider(
             builder.header("Authorization", "Bearer $apiKey")
         }
         for ((k, v) in extraHeaders) builder.header(k, v)
-        val client = OkHttpClient()
+        val client = HttpClients.listModelsClient()
         val request = builder.build()
         client.newCall(request).execute().use { resp ->
             val body = resp.body?.string() ?: "{}"

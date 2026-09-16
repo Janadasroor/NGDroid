@@ -75,6 +75,16 @@ class AgentErrorsTest {
     }
 
     @Test
+    fun stalledStreamSuggestsRetry() {
+        val out = AgentErrors.format(
+            "AI stream stalled (no data for 120 s). Retry; if it repeats, pick another model.",
+            "mimo-v2.5-free"
+        )
+        assertTrue(out, out.contains("stalled"))
+        assertTrue(out, out.contains("Regenerate"))
+    }
+
+    @Test
     fun upstream400SuggestsRetryOrOtherModel() {
         // Exact gateway shape from the Colpitts chat on mimo-v2.5-free.
         val raw = "Provider error: HTTP 400 for https://opencode.ai/zen/v1/chat/completions: " +

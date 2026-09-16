@@ -7,12 +7,23 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
 object HttpClients {
     /** Browser UA: bot-protection (Wikimedia, Brave, DDG) 403s OkHttp/Coil default UAs. */
     const val BROWSER_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 " +
             "(KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36"
+
+    /** Max silence on a live stream before it counts as stalled (token flow never pauses this long). */
+    const val STREAM_STALL_SECONDS = 120L
+
+    /** Bounded client for model-catalog GETs (never hang the picker spinner forever). */
+    fun listModelsClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(25, TimeUnit.SECONDS)
+        .writeTimeout(10, TimeUnit.SECONDS)
+        .build()
 
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -134,16 +145,29 @@ object HttpClients {
             }
             val source = resp.body?.source()
                 ?: throw IllegalStateException("Empty stream for $url")
+            // Stall watchdog: the base client has readTimeout(0) so streams
+            // stay open, but a gateway that accepts then goes quiet forever
+            // used to hang the run at "Contacting…" until app restart
+            // (blocking read is not coroutine-cancellable). Any 120 s gap
+            // without a byte now fails loudly instead.
+            source.timeout().timeout(STREAM_STALL_SECONDS, TimeUnit.SECONDS)
             // Frame-level parsing only; providers interpret event/data.
             val buf = StringBuilder()
-            while (!source.exhausted()) {
-                val line = source.readUtf8Line() ?: break
-                if (line.isBlank()) {
-                    parseSseBlock(buf.toString())?.let(onEvent)
-                    buf.clear()
-                } else {
-                    buf.append(line).append('\n')
+            try {
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (line.isBlank()) {
+                        parseSseBlock(buf.toString())?.let(onEvent)
+                        buf.clear()
+                    } else {
+                        buf.append(line).append('\n')
+                    }
                 }
+            } catch (e: SocketTimeoutException) {
+                throw IllegalStateException(
+                    "AI stream stalled (no data for $STREAM_STALL_SECONDS s). " +
+                        "Retry; if it repeats, pick another model."
+                )
             }
             parseSseBlock(buf.toString())?.let(onEvent)
         }

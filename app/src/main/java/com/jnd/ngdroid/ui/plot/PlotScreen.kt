@@ -52,9 +52,14 @@ import com.jnd.ngdroid.data.SettingsRepository
 import com.jnd.ngdroid.domain.CalculateMeasurementsUseCase
 import com.jnd.ngdroid.domain.ExportPlotUseCase
 import com.jnd.ngdroid.engine.NetMeasurements
+import com.jnd.ngdroid.engine.PlotExporter
+import com.jnd.ngdroid.engine.SimulationPlot
 import com.jnd.ngdroid.engine.SimulationRepository
 import com.jnd.ngdroid.ui.SimulationViewModel
-import com.jnd.ngdroid.ui.plot.TraceColors
+import com.jnd.ngdroid.ui.share.ShareOffer
+import com.jnd.ngdroid.ui.share.ShareSheetDialog
+import com.jnd.ngdroid.ui.share.launchShareTarget
+import com.jnd.ngdroid.ui.share.queryShareTargets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -158,6 +163,9 @@ fun PlotScreen(
         }
     )
 
+    // In-app share sheet offer: prepared file + resolved app targets.
+    var shareOffer by remember { mutableStateOf<ShareOffer?>(null) }
+
     fun savePngWithPermission() {
         val cur = plot ?: return
         if (cur.scaleVector?.values.isNullOrEmpty()) {
@@ -193,6 +201,24 @@ fun PlotScreen(
         NetMeasurementsDialog(
             measurements = selectedMeasurements!!,
             onDismiss = { selectedMeasurements = null }
+        )
+    }
+
+    // In-app share sheet (apps only — never the SMS "Select conversation"
+    // dead end). Prepared off the main thread; shown when ready.
+    shareOffer?.let { offer ->
+        ShareSheetDialog(
+            title = "Share waveform PNG",
+            targets = offer.targets,
+            onPick = { target ->
+                runCatching {
+                    launchShareTarget(context, target, offer.uri, offer.mimeType, offer.subject)
+                }.onFailure {
+                    Toast.makeText(context, "Share failed: ${it.message}", Toast.LENGTH_LONG).show()
+                }
+                shareOffer = null
+            },
+            onDismiss = { shareOffer = null }
         )
     }
 
@@ -270,8 +296,8 @@ fun PlotScreen(
                         }
                     }
 
-                    // PNG snapshot: tap to share, long-press to save to Downloads.
-                    // Single combinedClickable (no nested IconButton handler).
+                    // PNG snapshot: tap to share (in-app sheet, no dead-end
+                    // Direct Share contacts on old APIs), long-press to save.
                     if (plot != null && plot.scaleVector?.values?.isNotEmpty() == true) {
                         Box(
                             contentAlignment = Alignment.Center,
@@ -281,12 +307,14 @@ fun PlotScreen(
                                 .combinedClickable(
                                     onClick = {
                                         scope.launch {
-                                            val ok = withContext(Dispatchers.IO) {
-                                                exportUseCase.sharePng(
-                                                    context, plot, combinedActive, settings, currentViewState()
+                                            val offer = withContext(Dispatchers.IO) {
+                                                preparePngShare(
+                                                    context, plot, combinedActive,
+                                                    settings, currentViewState()
                                                 )
                                             }
-                                            if (!ok) {
+                                            if (offer != null) shareOffer = offer
+                                            else {
                                                 Toast.makeText(
                                                     context, "Nothing to export yet", Toast.LENGTH_SHORT
                                                 ).show()
@@ -460,4 +488,28 @@ fun PlotScreen(
             }
         }
     }
+}
+
+/**
+ * Renders the plot PNG, stages it through FileProvider and resolves share
+ * targets — all callable off the main thread. Null when nothing to export.
+ */
+private fun preparePngShare(
+    context: android.content.Context,
+    plot: SimulationPlot,
+    activeVectors: Set<String>,
+    settings: com.jnd.ngdroid.data.AppSettings,
+    viewState: PlotExporter.PlotViewState
+): com.jnd.ngdroid.ui.share.ShareOffer? {
+    val bmp = PlotExporter.renderPlotBitmap(plot, activeVectors, settings, viewState)
+        ?: return null
+    val file = PlotExporter.writePng(context, plot, bmp) ?: return null
+    val uri = androidx.core.content.FileProvider.getUriForFile(
+        context, "${context.packageName}.fileprovider", file
+    )
+    val subject = "NGDroid waveform: ${plot.title.ifEmpty { plot.plotName }}"
+    val targets = com.jnd.ngdroid.ui.share.queryShareTargets(
+        context, "image/png", uri, subject
+    )
+    return com.jnd.ngdroid.ui.share.ShareOffer(uri, "image/png", subject, targets)
 }

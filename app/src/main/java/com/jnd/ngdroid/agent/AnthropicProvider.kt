@@ -12,7 +12,6 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
@@ -54,7 +53,7 @@ class AnthropicProvider(
     }
 
     override suspend fun listModels(apiKey: String): List<String> = withContext(Dispatchers.IO) {
-        val client = OkHttpClient()
+        val client = HttpClients.listModelsClient()
         val request = Request.Builder()
             .url("$baseUrl/models?limit=1000")
             .header("x-api-key", apiKey)
