@@ -103,6 +103,15 @@ const val STUB_RETRY_NUDGE: String =
         "![description](image-url) images, or Downloads/NGDroid file locations. " +
         "Do not end with another promise."
 
+/**
+ * Trailer appended to a final answer that is a bare promise after the model
+ * already tried to act (any tool call, even an unknown one): the run stalled
+ * instead of delivering, so say so and point at Regenerate rather than
+ * leaving a dead-end "coming up" message.
+ */
+const val STALLED_TRAILER: String =
+    "The run stopped before delivering results — tap Regenerate to continue from here."
+
 sealed interface AgentEvent {
     data class Message(val text: String) : AgentEvent
     /** Live streamed text (accumulated so far) from the current provider call. */
@@ -142,6 +151,9 @@ class AgentOrchestrator(
         var iterations = 0
         var stubRetries = 0
         var contentToolUsed = false
+        // Any tool call this run (even an unknown name): the model tried to
+        // act, so a bare-promise final is a stall, not an answer.
+        var toolAttempted = false
         val forwardPartial: (String) -> Unit = { onEvent(AgentEvent.Partial(it)) }
 
         while (iterations < config.maxIterations + stubRetries) {
@@ -198,9 +210,18 @@ class AgentOrchestrator(
                     conversation.add(ChatMessage(ChatRole.USER, STUB_RETRY_NUDGE))
                     continue
                 }
+                // Stalled run: the model tried to act (any tool call) but the
+                // final is a bare promise — say so and point at Regenerate
+                // instead of leaving a dead-end "coming up" message.
+                if (toolAttempted && isPromiseWithoutPayload(text)) {
+                    val out = "$text\n\n_${STALLED_TRAILER}_"
+                    if (resp.text.isNotBlank()) onEvent(AgentEvent.Message(out))
+                    return out
+                }
                 if (resp.text.isNotBlank()) onEvent(AgentEvent.Message(resp.text))
                 return text
             }
+            toolAttempted = true
 
             conversation.add(
                 ChatMessage(

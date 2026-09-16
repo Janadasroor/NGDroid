@@ -139,8 +139,31 @@ class StubGuardTest {
         )
         val out = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, registry())
             .run("download timer 555 datasheet")
-        assertEquals("Still working on it, one moment please.", out)
+        assertEquals("Still working on it, one moment please.\n\n_${STALLED_TRAILER}_", out)
         assertEquals(3, provider.calls)
+    }
+
+    @Test
+    fun stalledAfterUnknownToolGetsTrailerNotNudge() = runTest {
+        val provider = ScriptedProvider(
+            listOf(
+                LlmResponse(
+                    "Building your Colpitts oscillator.",
+                    listOf(ToolCall("1", "validate", """{"netlist":"* x\n.end"}"""))
+                ),
+                LlmResponse("Checking for a clean sinewave, one moment please.")
+            )
+        )
+        val out = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, registry())
+            .run("build colpitts oscillator")
+        // Unknown tool: no stub nudge (guard needs a content tool), but the
+        // attempt marks a stall, so the trailer still applies.
+        assertEquals(
+            "Checking for a clean sinewave, one moment please.\n\n_${STALLED_TRAILER}_",
+            out
+        )
+        assertEquals(2, provider.calls)
+        assertFalse(provider.seenSystems.any { STUB_RETRY_NUDGE in it })
     }
 
     @Test
