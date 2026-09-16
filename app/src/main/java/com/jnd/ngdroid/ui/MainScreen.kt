@@ -168,7 +168,9 @@ fun MainScreen(
         ) {
         // Chat tab owns its own header (drawer + model picker); the global bar would double it.
         // Phone landscape is fully immersive (no top bar either).
-        val hideGlobalBar = isFullscreenPlot || selectedTab == AppTab.ASSISTANT || isPhoneLandscape
+        // Plot owns its header too (title + export/cursor/math actions).
+        val hideGlobalBar = isFullscreenPlot || selectedTab == AppTab.ASSISTANT ||
+            selectedTab == AppTab.PLOT || isPhoneLandscape
         Scaffold(
             topBar = {
                 if (!hideGlobalBar) {

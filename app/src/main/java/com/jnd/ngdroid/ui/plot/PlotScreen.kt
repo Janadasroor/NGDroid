@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +46,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.data.SettingsRepository
 import com.jnd.ngdroid.domain.CalculateMeasurementsUseCase
@@ -80,6 +82,9 @@ fun PlotScreen(
     var showCursors by remember { mutableStateOf(false) }
     var cursor1Frac by remember { mutableFloatStateOf(0.3f) }
     var cursor2Frac by remember { mutableFloatStateOf(0.7f) }
+
+    // Long circuit paths wrap to 3+ lines: single-line + tap to expand.
+    var titleExpanded by remember { mutableStateOf(false) }
 
     // Collapsible Net Labels Panel (Landscape & Floating)
     var isNetsPanelExpanded by remember { mutableStateOf(false) }
@@ -204,11 +209,17 @@ fun PlotScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { titleExpanded = !titleExpanded }
+                ) {
                     Text(
                         text = plot?.title?.ifEmpty { "Simulation Waveforms" } ?: "Simulation Waveforms",
                         style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = if (titleExpanded) 4 else 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (state.isPaused) {
                         Text(

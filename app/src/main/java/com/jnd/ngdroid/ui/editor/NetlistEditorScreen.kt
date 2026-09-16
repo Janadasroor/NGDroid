@@ -797,9 +797,12 @@ fun NetlistEditorScreen(
             }
 
             // Code Editor Box with highlighting, line numbers, wrap toggle, paste
+            // Comment uses a fixed dim of the base text: onSurfaceVariant is
+            // near-white on dark M3 schemes, which made comments unreadable
+            // as comments (looked unhighlighted, esp. on the cyan accent).
             val spiceColors = SpiceColors(
                 base = MaterialTheme.colorScheme.onSurface,
-                comment = MaterialTheme.colorScheme.onSurfaceVariant,
+                comment = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
                 directive = MaterialTheme.colorScheme.primary,
                 component = MaterialTheme.colorScheme.tertiary,
                 number = MaterialTheme.colorScheme.secondary
