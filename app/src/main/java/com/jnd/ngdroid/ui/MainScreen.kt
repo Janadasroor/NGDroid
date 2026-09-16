@@ -7,9 +7,15 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
@@ -23,7 +29,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -40,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,6 +91,10 @@ fun MainScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isFullscreenPlot = selectedTab == AppTab.PLOT && isLandscape
+    // Tablets (sw600dp+) keep full chrome in landscape; phones go immersive:
+    // top + bottom bars hidden, slim rail keeps every tab reachable.
+    val isTablet = configuration.smallestScreenWidthDp >= 600
+    val isPhoneLandscape = isLandscape && !isTablet
 
     // Back: any tab returns to EDITOR first; on EDITOR double-press exits.
     // Inner handlers (drawer, dialogs) consume first — this is the fallback.
@@ -120,9 +130,9 @@ fun MainScreen(
         AppTab.ASSISTANT to Icons.Default.SmartToy,
         AppTab.SETTINGS to Icons.Default.Settings
     )
-    // Landscape hides the bottom bar: the rail takes over so no tab is stranded.
+    // Landscape hides the bottom bar on phones; tablets keep it.
     // Fullscreen plot keeps maximum area (no rail either).
-    val showRail = isLandscape && !isFullscreenPlot
+    val showRail = isPhoneLandscape && !isFullscreenPlot
 
     NGDroidTheme(darkTheme = isDark, accent = primaryColor) {
         CompositionLocalProvider(
@@ -134,7 +144,8 @@ fun MainScreen(
             }
         ) {
         // Chat tab owns its own header (drawer + model picker); the global bar would double it.
-        val hideGlobalBar = isFullscreenPlot || selectedTab == AppTab.ASSISTANT
+        // Phone landscape is fully immersive (no top bar either).
+        val hideGlobalBar = isFullscreenPlot || selectedTab == AppTab.ASSISTANT || isPhoneLandscape
         Scaffold(
             topBar = {
                 if (!hideGlobalBar) {
@@ -148,9 +159,9 @@ fun MainScreen(
                 }
             },
             bottomBar = {
-                // Landscape: hide the bottom bar for more content room
-                // (back button still returns to EDITOR).
-                if (!isLandscape) {
+                // Phone landscape: no bottom bar (rail takes over).
+                // Tablets keep it in landscape; fullscreen plot hides it everywhere.
+                if (!isPhoneLandscape && !isFullscreenPlot) {
                     // Six destinations must fit 320dp+ screens: single-line
                     // labels at the bucket size, truncated instead of wrapping.
                     val navLabel = MaterialTheme.typography.labelMedium.copy(
@@ -229,25 +240,49 @@ fun MainScreen(
                     )
                 }
             }
-            Surface(modifier = Modifier.padding(if (isFullscreenPlot) PaddingValues() else innerPadding)) {
+            // Rail + fullscreen bleed edge-to-edge so the side container
+            // runs the full screen height (no sharp corners at top/bottom).
+            Surface(
+                modifier = if (showRail || isFullscreenPlot) Modifier.fillMaxSize()
+                else Modifier.padding(innerPadding)
+            ) {
                 if (showRail) {
-                    Row {
+                    Row(Modifier.fillMaxSize()) {
                         key("rail") {
-                            NavigationRail(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer
-                            ) {
-                                tabs.forEach { (tab, icon) ->
-                                    NavigationRailItem(
-                                        selected = selectedTab == tab,
-                                        onClick = { selectedTab = tab },
-                                        icon = { Icon(icon, contentDescription = tab.title) },
-                                        label = { Text(tab.title) }
-                                    )
+                            // Custom rail (not M3 NavigationRail): six items don't fit
+                            // short landscape heights, so the column scrolls instead
+                            // of squeezing/cutting the last button.
+                            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .statusBarsPadding()
+                                        .navigationBarsPadding()
+                                        .verticalScroll(rememberScrollState())
+                                        .padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    tabs.forEach { (tab, icon) ->
+                                        NavigationRailItem(
+                                            selected = selectedTab == tab,
+                                            onClick = { selectedTab = tab },
+                                            icon = { Icon(icon, contentDescription = tab.title) },
+                                            label = { Text(tab.title) },
+                                            modifier = Modifier.width(80.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                         key("content") {
-                            Box(modifier = Modifier.weight(1f)) { tabContent() }
+                            // Content keeps the Scaffold insets (bars are hidden,
+                            // system insets still apply) — only the rail bleeds.
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .padding(innerPadding)
+                            ) { tabContent() }
                         }
                     }
                 } else {
