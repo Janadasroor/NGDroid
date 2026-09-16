@@ -265,8 +265,10 @@ fun AssistantScreen(
             addPickedUris(listOf(uri))
             runCatching { file?.delete() }
         } else {
+            // Backed out or capture failed: drop the temp file quietly.
+            // Backing out is normal (no nag); the camera app surfaces its
+            // own errors when capture itself breaks.
             runCatching { file?.delete() }
-            if (!ok) Toast.makeText(context, "Photo discarded", Toast.LENGTH_SHORT).show()
         }
     }
     fun launchCamera() {
