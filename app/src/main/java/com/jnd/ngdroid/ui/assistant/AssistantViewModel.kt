@@ -824,9 +824,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             return
         }
         val s = _settings.value
-        val targets = AgentProvider.entries.filter {
-            it == AgentProvider.OPENCODE_ZEN || s.apiKeyFor(it).isNotBlank()
-        }
+        val targets = eligibleCatalogProviders(s)
         if (targets.isEmpty()) {
             _modelsError.value = "Add a provider API key in Settings first."
             return

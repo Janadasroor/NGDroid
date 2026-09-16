@@ -1,6 +1,18 @@
 package com.jnd.ngdroid.ui.assistant
 
 import com.jnd.ngdroid.data.AgentProvider
+import com.jnd.ngdroid.data.AgentSettings
+
+/**
+ * Providers whose catalogs can be listed: Zen (public) + every keyed
+ * provider with a saved key. Keyless providers are never fetched (their
+ * /models would just 401). This is what keeps the all-providers picker
+ * populated — pure; JVM-testable.
+ */
+fun eligibleCatalogProviders(settings: AgentSettings): List<AgentProvider> =
+    AgentProvider.entries.filter {
+        it == AgentProvider.OPENCODE_ZEN || settings.apiKeyFor(it).isNotBlank()
+    }
 
 /**
  * Per-provider model catalog cache: switching providers (or pasting a key)

@@ -95,4 +95,18 @@ class ProviderCatalogsTest {
         assertEquals("", s.apiKeyFor(AgentProvider.OPENAI))
         assertEquals("g-key", s.copy(provider = AgentProvider.GEMINI).activeApiKey())
     }
+
+    @Test
+    fun eligibilityIsZenPlusKeyedProviders() {
+        val none = com.jnd.ngdroid.data.AgentSettings()
+        assertEquals(
+            listOf(AgentProvider.OPENCODE_ZEN),
+            eligibleCatalogProviders(none)
+        )
+        val keyed = none.copy(geminiApiKey = "g-key", openaiApiKey = "   ", anthropicApiKey = "a-key")
+        assertEquals(
+            listOf(AgentProvider.GEMINI, AgentProvider.ANTHROPIC, AgentProvider.OPENCODE_ZEN),
+            eligibleCatalogProviders(keyed)
+        )
+    }
 }
