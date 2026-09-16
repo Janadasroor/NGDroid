@@ -10,8 +10,12 @@ data class AgentConfig(
 private val contentToolNames = setOf(
     "web_search", "fetch_url", "curl_fetch", "image_search",
     "netlist_template", "validate_netlist", "apply_netlist", "run_simulation",
+    "render_plot",
     "download_file", "read_file", "list_files", "read_skill"
 )
+
+/** Cap vision images injected per tool result (token saver). */
+const val MAX_TOOL_IMAGES = 1
 
 private val promisePhrases = listOf(
     "coming up", "coming right up", "i'll pull", "i'll fetch", "i'll get",
@@ -200,23 +204,35 @@ class AgentOrchestrator(
                 onEvent(AgentEvent.ToolCallEvent(tc.name, tc.argumentsJson))
                 if (tc.name in contentToolNames) contentToolUsed = true
                 val tool = tools.get(tc.name)
-                val output = if (tool == null) {
-                    "ERROR: unknown tool '${tc.name}'"
+                val result = if (tool == null) {
+                    ToolResult("ERROR: unknown tool '${tc.name}'")
                 } else {
                     try {
-                        tool.execute(tc.argumentsJson)
+                        tool.executeEx(tc.argumentsJson)
                     } catch (e: Exception) {
-                        "ERROR: ${e.message}"
+                        ToolResult("ERROR: ${e.message}")
                     }
                 }
-                onEvent(AgentEvent.Observation(tc.name, output))
+                onEvent(AgentEvent.Observation(tc.name, result.text))
                 conversation.add(
                     ChatMessage(
                         role = ChatRole.TOOL,
-                        content = output,
+                        content = result.text,
                         toolCallId = tc.id.ifBlank { null }
                     )
                 )
+                // TOOL images ride as a follow-up USER turn: every provider
+                // already sends USER vision (image_url/inlineData/base64),
+                // while TOOL vision shapes differ per API.
+                if (result.images.isNotEmpty()) {
+                    conversation.add(
+                        ChatMessage(
+                            role = ChatRole.USER,
+                            content = "[${tc.name} image attached — shape check only; numbers come from samples:/vectors:]",
+                            images = result.images.take(MAX_TOOL_IMAGES)
+                        )
+                    )
+                }
             }
         }
 

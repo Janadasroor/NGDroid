@@ -151,6 +151,8 @@ fun AssistantScreen(
     onApplyAndRun: (String) -> Unit,
     onSnapshot: () -> String = { "" },
     onRunAndReport: suspend (String?, Long) -> String = { _, _ -> "Simulation started" },
+    onRenderPlot: suspend (List<String>?) -> com.jnd.ngdroid.agent.ToolResult =
+        { _ -> com.jnd.ngdroid.agent.ToolResult("ERROR: plot render unavailable") },
     onCurrentNetlist: () -> String = { "" },
     onNavigateToEditor: (() -> Unit)? = null,
     onNavigateToPlot: (() -> Unit)? = null,
@@ -293,6 +295,8 @@ fun AssistantScreen(
             override fun snapshot(): String = onSnapshot()
             override suspend fun runAndReport(netlist: String?, timeoutMs: Long): String =
                 onRunAndReport(netlist, timeoutMs)
+            override suspend fun renderPlot(requested: List<String>?): com.jnd.ngdroid.agent.ToolResult =
+                onRenderPlot(requested)
         }
         pendingBridge = bridge
         return bridge

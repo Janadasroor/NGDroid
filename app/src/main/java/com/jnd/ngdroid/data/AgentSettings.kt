@@ -33,6 +33,7 @@ data class AgentSettings(
     val skillImageSearch: Boolean = true,
     val skillDownloadFile: Boolean = true,
     val skillReadFile: Boolean = true,
+    val skillRenderPlot: Boolean = true,
     // ---- reasoning limits ----
     val maxIterations: Int = 12,
     val stubRetries: Int = 1,
@@ -63,6 +64,7 @@ data class AgentSettings(
         "image_search" -> skillImageSearch
         "download_file" -> skillDownloadFile
         "read_file" -> skillReadFile
+        "render_plot" -> skillRenderPlot
         else -> true
     }
 
@@ -77,6 +79,7 @@ data class AgentSettings(
         "image_search" -> copy(skillImageSearch = enabled)
         "download_file" -> copy(skillDownloadFile = enabled)
         "read_file" -> copy(skillReadFile = enabled)
+        "render_plot" -> copy(skillRenderPlot = enabled)
         else -> this
     }
 

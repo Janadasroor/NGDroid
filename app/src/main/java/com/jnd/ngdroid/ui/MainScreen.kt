@@ -179,6 +179,9 @@ fun MainScreen(
                         onRunAndReport = { net, timeoutMs ->
                             simulationViewModel.runAndReport(net, timeoutMs)
                         },
+                        onRenderPlot = { requested ->
+                            simulationViewModel.renderPlotThumbnail(requested)
+                        },
                         onCurrentNetlist = { simulationViewModel.currentNetlistText() },
                         onNavigateToEditor = { selectedTab = AppTab.EDITOR },
                         onNavigateToPlot = { selectedTab = AppTab.PLOT },

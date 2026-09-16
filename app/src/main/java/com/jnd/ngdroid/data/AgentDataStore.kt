@@ -34,6 +34,7 @@ class AgentDataStore(private val context: Context) {
         val SKILL_IMAGE = booleanPreferencesKey("skill_image_search")
         val SKILL_DOWNLOAD = booleanPreferencesKey("skill_download_file")
         val SKILL_READ = booleanPreferencesKey("skill_read_file")
+        val SKILL_RENDER_PLOT = booleanPreferencesKey("skill_render_plot")
         val MAX_ITER = intPreferencesKey("agent_max_iter")
         val STUB_RETRIES = intPreferencesKey("agent_stub_retries")
         val AUTO_PICK = booleanPreferencesKey("agent_auto_pick")
@@ -66,6 +67,7 @@ class AgentDataStore(private val context: Context) {
             skillImageSearch = prefs[Keys.SKILL_IMAGE] ?: true,
             skillDownloadFile = prefs[Keys.SKILL_DOWNLOAD] ?: true,
             skillReadFile = prefs[Keys.SKILL_READ] ?: true,
+            skillRenderPlot = prefs[Keys.SKILL_RENDER_PLOT] ?: true,
             maxIterations = prefs[Keys.MAX_ITER] ?: 12,
             stubRetries = prefs[Keys.STUB_RETRIES] ?: 1,
             autoPickFreeModel = prefs[Keys.AUTO_PICK] ?: true,
@@ -127,6 +129,7 @@ class AgentDataStore(private val context: Context) {
                 "image_search" -> it[Keys.SKILL_IMAGE] = enabled
                 "download_file" -> it[Keys.SKILL_DOWNLOAD] = enabled
                 "read_file" -> it[Keys.SKILL_READ] = enabled
+                "render_plot" -> it[Keys.SKILL_RENDER_PLOT] = enabled
             }
         }
     }
@@ -169,6 +172,7 @@ class AgentDataStore(private val context: Context) {
             it[Keys.SKILL_IMAGE] = settings.skillImageSearch
             it[Keys.SKILL_DOWNLOAD] = settings.skillDownloadFile
             it[Keys.SKILL_READ] = settings.skillReadFile
+            it[Keys.SKILL_RENDER_PLOT] = settings.skillRenderPlot
             it[Keys.MAX_ITER] = settings.maxIterations.coerceIn(4, 20)
             it[Keys.STUB_RETRIES] = settings.stubRetries.coerceIn(0, 3)
             it[Keys.AUTO_PICK] = settings.autoPickFreeModel
@@ -199,6 +203,7 @@ class AgentDataStore(private val context: Context) {
             it.remove(Keys.SKILL_IMAGE)
             it.remove(Keys.SKILL_DOWNLOAD)
             it.remove(Keys.SKILL_READ)
+            it.remove(Keys.SKILL_RENDER_PLOT)
             it.remove(Keys.MAX_ITER)
             it.remove(Keys.STUB_RETRIES)
             it.remove(Keys.AUTO_PICK)

@@ -543,6 +543,61 @@ class SimulationViewModel(
     }
 
     fun currentNetlistText(): String = repository.netlistText.value
+
+    /**
+     * Agent vision path: render current plot as a small JPEG thumbnail
+     * (≤768px wide, q70) for shape checking. Numbers still come from
+     * snapshotReport(); this image is pixels-only backup for ambiguous shapes.
+     * Must be called from a background dispatcher (tool worker thread).
+     */
+    suspend fun renderPlotThumbnail(requested: List<String>?): com.jnd.ngdroid.agent.ToolResult =
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val s = repository.state.value
+            val plot = s.currentPlot
+                ?: return@withContext com.jnd.ngdroid.agent.ToolResult("ERROR: no plot yet — run simulation first")
+            val available = plot.dataVectors.map { it.name }.toSet()
+            val active = when {
+                requested.isNullOrEmpty() -> s.activeVectors.filter { it in available }.toSet()
+                else -> requested.filter { it in available }.take(6).toSet()
+            }.ifEmpty { s.activeVectors.filter { it in available }.toSet() }
+            if (active.isEmpty()) {
+                return@withContext com.jnd.ngdroid.agent.ToolResult(
+                    "ERROR: no active vectors (available: ${available.take(8).joinToString(", ")})"
+                )
+            }
+            val bmp = try {
+                com.jnd.ngdroid.engine.PlotExporter.renderPlotBitmap(
+                    plot, active, com.jnd.ngdroid.data.AppSettings()
+                )
+            } catch (e: Exception) {
+                return@withContext com.jnd.ngdroid.agent.ToolResult("ERROR: ${e.message}")
+            } ?: return@withContext com.jnd.ngdroid.agent.ToolResult("ERROR: plot render failed")
+            try {
+                val scaled = if (bmp.width > 768) {
+                    val h = (bmp.height * 768f / bmp.width).toInt().coerceAtLeast(1)
+                    android.graphics.Bitmap.createScaledBitmap(bmp, 768, h, true)
+                } else bmp
+                val out = java.io.ByteArrayOutputStream()
+                scaled.compress(android.graphics.Bitmap.CompressFormat.JPEG, 70, out)
+                if (scaled !== bmp) {
+                    scaled.recycle()
+                    bmp.recycle()
+                } else {
+                    bmp.recycle()
+                }
+                val bytes = out.toByteArray()
+                if (bytes.isEmpty() || bytes.size > 400_000) {
+                    return@withContext com.jnd.ngdroid.agent.ToolResult("ERROR: thumbnail encode failed")
+                }
+                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                com.jnd.ngdroid.agent.ToolResult(
+                    "plot: ${active.sorted().joinToString(", ")} (${bytes.size / 1024}KB jpeg)",
+                    listOf(com.jnd.ngdroid.agent.LlmImage("image/jpeg", b64, "plot.jpg"))
+                )
+            } catch (e: Exception) {
+                com.jnd.ngdroid.agent.ToolResult("ERROR: ${e.message}")
+            }
+        }
 }
 
 /** One-line per-vector summary: name + points + min/max/last. Pure. */

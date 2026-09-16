@@ -86,8 +86,8 @@ class CustomSkillsTest {
 
     @Test
     fun builtinCatalogCoversTools() {
-        assertTrue(BUILTIN_SKILL_IDS.containsAll(listOf("web_search", "fetch_url", "read_file", "validate_netlist", "run_simulation")))
-        assertEquals(10, BUILTIN_SKILLS.size)
+        assertTrue(BUILTIN_SKILL_IDS.containsAll(listOf("web_search", "fetch_url", "read_file", "validate_netlist", "run_simulation", "render_plot")))
+        assertEquals(11, BUILTIN_SKILLS.size)
     }
 
     @Test

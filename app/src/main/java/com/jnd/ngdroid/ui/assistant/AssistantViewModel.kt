@@ -24,6 +24,7 @@ import com.jnd.ngdroid.agent.OpenRouterProvider
 import com.jnd.ngdroid.agent.OpenAiProvider
 import com.jnd.ngdroid.agent.ReadFileTool
 import com.jnd.ngdroid.agent.ReadSkillTool
+import com.jnd.ngdroid.agent.RenderPlotTool
 import com.jnd.ngdroid.agent.RunSimulationTool
 import com.jnd.ngdroid.data.AndroidAssistantFileStore
 import com.jnd.ngdroid.agent.SpiceAppBridge
@@ -78,6 +79,9 @@ interface SimBridge {
             snapshot().ifBlank { "Simulation started" }
         } catch (e: Exception) { "ERROR: ${e.message}" }
     }
+    /** Render current plot as JPEG thumbnail for vision shape check. */
+    suspend fun renderPlot(requested: List<String>?): com.jnd.ngdroid.agent.ToolResult =
+        com.jnd.ngdroid.agent.ToolResult("ERROR: plot render unavailable")
 }
 
 class AssistantViewModel(application: Application) : AndroidViewModel(application) {
@@ -926,6 +930,9 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     if (s.isSkillEnabled("apply_netlist")) register(ApplyNetlistTool(bridge))
                     if (s.isSkillEnabled("run_simulation")) register(
                         RunSimulationTool { netlist, timeoutMs -> simBridge.runAndReport(netlist, timeoutMs) }
+                    )
+                    if (s.isSkillEnabled("render_plot")) register(
+                        RenderPlotTool { requested -> simBridge.renderPlot(requested) }
                     )
                     if (s.isSkillEnabled("web_search")) register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
                     if (s.isSkillEnabled("image_search")) register(ImageSearchTool(searchKeyProvider = { s.searchApiKey }))

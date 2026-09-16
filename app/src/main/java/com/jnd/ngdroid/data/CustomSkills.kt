@@ -40,7 +40,8 @@ val BUILTIN_SKILLS: List<BuiltinSkill> = listOf(
     BuiltinSkill("curl_fetch", "Curl fetch", "GET-only curl-style URL reads", "Web"),
     BuiltinSkill("image_search", "Image search", "Pinouts, schematics, photos", "Web"),
     BuiltinSkill("download_file", "Download files", "Save PDFs/images/CSV/ZIP to Downloads", "Files"),
-    BuiltinSkill("read_file", "Read files", "Inspect saved docs, text and images", "Files")
+    BuiltinSkill("read_file", "Read files", "Inspect saved docs, text and images", "Files"),
+    BuiltinSkill("render_plot", "See plot image", "Shape check: clipping, ringing, phase (numbers still from text)", "SPICE")
 )
 
 val BUILTIN_SKILL_IDS: Set<String> = BUILTIN_SKILLS.map { it.id }.toSet()
