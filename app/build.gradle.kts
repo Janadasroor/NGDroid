@@ -65,34 +65,29 @@ android {
 }
 
 dependencies {
-    implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.2.10"))
-    constraints {
-        implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.10")
-        implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.10")
-        implementation("org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.10")
-        implementation("org.jetbrains.kotlin:kotlin-reflect:2.2.10")
-    }
+    implementation(platform(libs.kotlin.bom))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
-    implementation("androidx.compose.material:material-icons-core")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation(libs.androidx.material.icons.core)
+    implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("androidx.datastore:datastore-preferences:1.1.1")
-    implementation("androidx.datastore:datastore-core:1.1.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.35.0")
-    implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.35.0")
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.datastore.core)
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.markdown.renderer.m3)
+    implementation(libs.markdown.renderer.coil3)
     // Coil network transport (NOT pulled in by the markdown coil3 module):
     // without it remote chat images have no fetcher and render blank.
     // Registered explicitly (not via ServiceLoader) so R8 can't strip it.
-    implementation("io.coil-kt.coil3:coil-network-okhttp:3.1.0")
+    implementation(libs.coil.network.okhttp)
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(libs.kotlinx.coroutines.test)
