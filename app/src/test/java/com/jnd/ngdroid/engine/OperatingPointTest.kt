@@ -67,4 +67,34 @@ class OperatingPointTest {
         // Header without rows is not a table.
         assertNull(parseOperatingPoint(listOf("Node Voltage", "---- -------", "Reference value : 0")))
     }
+
+    @Test
+    fun stripsTagVariants() {
+        val logs = listOf(
+            "[stdout] Node Voltage",
+            "STDERR: ---- -------",
+            "stdout\tout 1.5"
+        )
+        val op = parseOperatingPoint(logs)!!
+        assertEquals(1, op.rows.size)
+        assertEquals("out", op.rows[0].name)
+    }
+
+    @Test
+    fun parsesSourceCurrentTable() {
+        val logs = listOf(
+            "Node Voltage",
+            "---- -------",
+            "out 1.5",
+            "Source Current",
+            "---- -------",
+            "v1 -1.2e-03"
+        )
+        val op = parseOperatingPoint(logs)!!
+        assertEquals(2, op.rows.size)
+        assertTrue(!op.rows[0].isCurrent)
+        assertEquals("v1", op.rows[1].name)
+        assertTrue(op.rows[1].isCurrent)
+        assertEquals(-1.2e-03, op.rows[1].value, 1e-12)
+    }
 }

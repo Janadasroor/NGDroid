@@ -105,22 +105,32 @@ fun ConsoleScreen(repository: SimulationRepository) {
                 }
 
                 Row {
-                    // Operating-point table (last Node/Voltage block in logs).
-                    val opPoint = remember(state.logs) {
-                        com.jnd.ngdroid.engine.parseOperatingPoint(state.logs)
-                    }
+                    // Operating-point table parsed on click only — not on every
+                    // log append — to avoid O(n^2) rescans during a live run.
                     var showOp by remember { mutableStateOf(false) }
-                    if (opPoint != null) {
-                        IconButton(onClick = { showOp = true }) {
-                            Icon(
-                                Icons.Default.TableChart,
-                                contentDescription = "Operating point",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    var opPoint by remember {
+                        mutableStateOf<com.jnd.ngdroid.engine.OperatingPoint?>(null)
+                    }
+                    IconButton(onClick = {
+                        opPoint = com.jnd.ngdroid.engine.parseOperatingPoint(state.logs)
+                        showOp = opPoint != null
+                        if (opPoint == null) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar(
+                                    message = "No operating point found",
+                                    duration = SnackbarDuration.Short
+                                )
+                            }
                         }
+                    }) {
+                        Icon(
+                            Icons.Default.TableChart,
+                            contentDescription = "Operating point",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     if (showOp && opPoint != null) {
-                        OperatingPointDialog(op = opPoint, onDismiss = { showOp = false })
+                        OperatingPointDialog(op = opPoint!!, onDismiss = { showOp = false })
                     }
 
                     // Share Logs Button
