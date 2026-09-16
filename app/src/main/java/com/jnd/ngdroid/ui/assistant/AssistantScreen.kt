@@ -166,6 +166,7 @@ fun AssistantScreen(
     val models by assistantViewModel.models.collectAsState()
     val modelsLoading by assistantViewModel.modelsLoading.collectAsState()
     val freeModels by assistantViewModel.freeModels.collectAsState()
+    val allCatalogs by assistantViewModel.allCatalogs.collectAsState()
     val sessions by assistantViewModel.sessions.collectAsState()
     val activeChatId by assistantViewModel.activeChatId.collectAsState()
     val workingIds by assistantViewModel.workingIds.collectAsState()
@@ -352,14 +353,15 @@ fun AssistantScreen(
                             settings = settings,
                             models = models,
                             freeModels = freeModels,
+                            catalogs = allCatalogs,
                             modelsLoading = modelsLoading,
                             menuExpanded = modelMenuExpanded,
                             onMenuExpandedChange = {
                                 modelMenuExpanded = it
-                                if (it) assistantViewModel.refreshModels()
+                                if (it) assistantViewModel.refreshAllModels()
                             },
-                            onSelectModel = {
-                                assistantViewModel.selectModel(it)
+                            onSelectModelAcross = { provider, id ->
+                                assistantViewModel.selectModelAcross(provider, id)
                                 modelMenuExpanded = false
                             },
                             onBrowseAll = {
@@ -1113,35 +1115,36 @@ private fun UserAttachmentList(
 }
 
 /**
- * Professional model picker fed ONLY by the live provider catalog ([models]).
- * Pill button (provider icon + name + FREE badge) opens a menu with its own
- * search engine, ALL/FREE filter chips, and free-first ranked rows.
- * No hardcoded entries: empty catalog -> "Select model" placeholder that opens the browser.
+ * Professional model picker fed by ALL fetched provider catalogs.
+ * Pill button (active provider icon + name + FREE badge) opens a menu with its own
+ * search engine, ALL/FREE filter chips, and provider-grouped free-first rows —
+ * every provider with a saved key (plus public Zen) in one list. Picking a row
+ * from another provider switches to it. No hardcoded entries.
  */
 @Composable
 private fun ModelDropdownRow(
     settings: AgentSettings,
     models: List<String>,
     freeModels: List<String>,
+    catalogs: List<ProviderCatalog>,
     modelsLoading: Boolean,
     menuExpanded: Boolean,
     onMenuExpandedChange: (Boolean) -> Unit,
-    onSelectModel: (String) -> Unit,
+    onSelectModelAcross: (AgentProvider, String) -> Unit,
     onBrowseAll: () -> Unit
 ) {
     val selected = settings.selectedModel.trim()
     val hasSelection = selected.isNotEmpty()
     val isZen = settings.provider == AgentProvider.OPENCODE_ZEN
     val selectedFree = hasSelection && freeModels.any { it == selected }
-    val freeSet = remember(freeModels) { freeModels.toSet() }
     var menuQuery by remember(menuExpanded) { mutableStateOf("") }
     var menuTier by remember(menuExpanded) { mutableStateOf(ModelTierFilter.ALL) }
-    val menuVisible = remember(models, menuQuery, menuTier, freeSet) {
-        searchModelCatalog(models, menuQuery, menuTier, freeSet).take(12)
+    val allEntries = remember(catalogs, menuQuery, menuTier) {
+        searchAllCatalogs(catalogs, menuQuery, menuTier)
     }
-    val menuCount = remember(models, menuQuery, menuTier, freeSet) {
-        searchModelCatalog(models, menuQuery, menuTier, freeSet).size
-    }
+    val menuVisible = remember(allEntries) { allEntries.take(30) }
+    val totalModels = remember(catalogs) { catalogs.sumOf { it.models.size } }
+    val totalFree = remember(catalogs) { catalogs.sumOf { it.freeModels.size } }
     val label = when {
         hasSelection -> selected
         modelsLoading -> "Loading models…"
@@ -1245,16 +1248,16 @@ private fun ModelDropdownRow(
             onDismissRequest = { onMenuExpandedChange(false) },
             modifier = Modifier.heightIn(max = 420.dp)
         ) {
-            if (models.isEmpty() && !modelsLoading) {
+            if (catalogs.isEmpty() && !modelsLoading) {
                 DropdownMenuItem(
-                    text = { Text("No models yet — browse all") },
+                    text = { Text("No models yet — add a key in Settings, then reopen") },
                     onClick = onBrowseAll
                 )
             } else {
                 OutlinedTextField(
                     value = menuQuery,
                     onValueChange = { menuQuery = it },
-                    placeholder = { Text("Search ${models.size} models…") },
+                    placeholder = { Text("Search $totalModels models…") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (menuQuery.isNotEmpty()) {
@@ -1276,21 +1279,38 @@ private fun ModelDropdownRow(
                     FilterChip(
                         selected = menuTier == ModelTierFilter.ALL,
                         onClick = { menuTier = ModelTierFilter.ALL },
-                        label = { Text("All ${models.size}") }
+                        label = { Text("All $totalModels") }
                     )
                     FilterChip(
                         selected = menuTier == ModelTierFilter.FREE,
                         onClick = { menuTier = ModelTierFilter.FREE },
-                        label = { Text("Free ${freeModels.size}") },
+                        label = { Text("Free $totalFree") },
                         leadingIcon = if (menuTier == ModelTierFilter.FREE) {
                             { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
                         } else null
                     )
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                menuVisible.forEach { id ->
-                    val isSelected = selected == id
-                    val isFree = freeSet.any { it == id }
+                menuVisible.forEachIndexed { index, entry ->
+                    if (index == 0 || menuVisible[index - 1].provider != entry.provider) {
+                        val isCurrent = entry.provider == settings.provider
+                        Text(
+                            buildString {
+                                append(entry.provider.displayName.uppercase())
+                                if (isCurrent) append(" • CURRENT")
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isCurrent) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                        )
+                    }
+                    val id = entry.id
+                    val isSelected = selected == id && settings.provider == entry.provider
+                    val isFree = entry.free
                     DropdownMenuItem(
                         text = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1325,7 +1345,7 @@ private fun ModelDropdownRow(
                                     Text(
                                         buildString {
                                             append(modelFamily(id))
-                                            append(" • ${settings.provider.displayName}")
+                                            append(" • ${entry.provider.displayName}")
                                             if (isFree) append(" • FREE")
                                         },
                                         style = MaterialTheme.typography.labelSmall,
@@ -1355,7 +1375,7 @@ private fun ModelDropdownRow(
                                 )
                             }
                         } else null,
-                        onClick = { onSelectModel(id) }
+                        onClick = { onSelectModelAcross(entry.provider, id) }
                     )
                 }
                 if (menuVisible.isEmpty()) {
@@ -1369,8 +1389,8 @@ private fun ModelDropdownRow(
                 DropdownMenuItem(
                     text = {
                         Text(
-                            if (menuCount > menuVisible.size) "Browse all $menuCount…"
-                            else "Browse all ${models.size}…",
+                            if (allEntries.size > menuVisible.size) "Browse all ${allEntries.size}…"
+                            else "Browse all $totalModels…",
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.primary
                         )
@@ -1610,21 +1630,25 @@ private fun ModelsDialog(
 ) {
     LockOrientationWhileShown()
     val settings by assistantViewModel.settings.collectAsState()
-    val models by assistantViewModel.models.collectAsState()
-    val freeModels by assistantViewModel.freeModels.collectAsState()
+    val catalogs by assistantViewModel.allCatalogs.collectAsState()
     val loading by assistantViewModel.modelsLoading.collectAsState()
     val error by assistantViewModel.modelsError.collectAsState()
     var query by remember { mutableStateOf("") }
     var tier by remember { mutableStateOf(ModelTierFilter.ALL) }
 
-    LaunchedEffect(Unit) { assistantViewModel.refreshModels() }
+    LaunchedEffect(Unit) { assistantViewModel.refreshAllModels() }
 
-    val freeSet = remember(freeModels) { freeModels.toSet() }
-    val visible = remember(models, query, tier, freeSet) {
-        searchModelCatalog(models, query, tier, freeSet)
+    val entries = remember(catalogs, query, tier) {
+        searchAllCatalogs(catalogs, query, tier)
     }
-    val freeVisible = remember(visible, freeSet) { visible.filter { it in freeSet } }
-    val keyedVisible = remember(visible, freeSet) { visible.filter { it !in freeSet } }
+    val totalModels = remember(catalogs) { catalogs.sumOf { it.models.size } }
+    val totalFree = remember(catalogs) { catalogs.sumOf { it.freeModels.size } }
+    // Provider-ordered groups (current provider first, as published).
+    val groups = remember(catalogs, entries) {
+        val byProvider = entries.groupBy { it.provider }
+        catalogs.mapNotNull { c -> byProvider[c.provider]?.let { c.provider to it } }
+    }
+    val selectedId = settings.selectedModel.trim()
     val isZen = settings.provider == AgentProvider.OPENCODE_ZEN
 
     AlertDialog(
@@ -1646,7 +1670,7 @@ private fun ModelsDialog(
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Choose model", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
-                        "${settings.provider.displayName} • ${models.size} models • ${freeModels.size} free",
+                        "$totalModels models • $totalFree free • ${catalogs.size} providers",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1686,12 +1710,12 @@ private fun ModelsDialog(
                     FilterChip(
                         selected = tier == ModelTierFilter.ALL,
                         onClick = { tier = ModelTierFilter.ALL },
-                        label = { Text("All ${models.size}") }
+                        label = { Text("All $totalModels") }
                     )
                     FilterChip(
                         selected = tier == ModelTierFilter.FREE,
                         onClick = { tier = ModelTierFilter.FREE },
-                        label = { Text("Free ${freeModels.size}") },
+                        label = { Text("Free $totalFree") },
                         leadingIcon = {
                             Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(14.dp))
                         }
@@ -1699,7 +1723,7 @@ private fun ModelsDialog(
                     FilterChip(
                         selected = tier == ModelTierFilter.KEYED,
                         onClick = { tier = ModelTierFilter.KEYED },
-                        label = { Text("Keyed ${models.size - freeModels.size}") }
+                        label = { Text("Keyed ${totalModels - totalFree}") }
                     )
                 }
                 Row(
@@ -1707,7 +1731,7 @@ private fun ModelsDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
-                        onClick = { assistantViewModel.refreshModels() },
+                        onClick = { assistantViewModel.refreshAllModels() },
                         enabled = !loading,
                         shape = LocalButtonShape.current
                     ) {
@@ -1720,8 +1744,8 @@ private fun ModelsDialog(
                         Text(if (loading) "Fetching…" else "Refresh")
                     }
                     Text(
-                        if (query.isBlank()) "${visible.size} shown"
-                        else "${visible.size} match \"${query.trim().take(24)}\"",
+                        if (query.isBlank()) "${entries.size} shown across ${groups.size} providers"
+                        else "${entries.size} match \"${query.trim().take(24)}\"",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1745,7 +1769,7 @@ private fun ModelsDialog(
                                 modifier = Modifier.weight(1f)
                             )
                             Spacer(Modifier.width(8.dp))
-                            TextButton(onClick = { assistantViewModel.refreshModels() }) { Text("Retry") }
+                            TextButton(onClick = { assistantViewModel.refreshAllModels() }) { Text("Retry") }
                         }
                     }
                 }
@@ -1756,53 +1780,36 @@ private fun ModelsDialog(
                         .heightIn(max = 340.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    if (freeVisible.isNotEmpty() && tier != ModelTierFilter.KEYED) {
-                        item(key = "hdr-free") {
+                    groups.forEach { (provider, rows) ->
+                        val isCurrent = provider == settings.provider
+                        item(key = "hdr:${provider.name}") {
                             Text(
-                                "FREE — works without a key to list • ${freeVisible.size}",
+                                buildString {
+                                    append(provider.displayName.uppercase())
+                                    append(" • ${rows.size}")
+                                    if (isCurrent) append(" • CURRENT")
+                                },
                                 style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = if (isCurrent) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                             )
                         }
-                    }
-                    items(freeVisible, key = { "f:$it" }) { id ->
-                        ModelBrowserRow(
-                            id = id,
-                            providerName = settings.provider.displayName,
-                            isFree = true,
-                            selected = settings.selectedModel.trim() == id,
-                            onSelect = {
-                                assistantViewModel.selectModel(id)
-                                onDismiss()
-                            }
-                        )
-                    }
-                    if (keyedVisible.isNotEmpty() && tier != ModelTierFilter.FREE) {
-                        item(key = "hdr-keyed") {
-                            Text(
-                                "KEYED — needs API key • ${keyedVisible.size}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                        items(rows, key = { "r:${provider.name}:${it.id}" }) { entry ->
+                            ModelBrowserRow(
+                                id = entry.id,
+                                providerName = provider.displayName,
+                                isFree = entry.free,
+                                selected = selectedId == entry.id && settings.provider == provider,
+                                onSelect = {
+                                    assistantViewModel.selectModelAcross(provider, entry.id)
+                                    onDismiss()
+                                }
                             )
                         }
                     }
-                    items(keyedVisible, key = { "k:$it" }) { id ->
-                        ModelBrowserRow(
-                            id = id,
-                            providerName = settings.provider.displayName,
-                            isFree = false,
-                            selected = settings.selectedModel.trim() == id,
-                            onSelect = {
-                                assistantViewModel.selectModel(id)
-                                onDismiss()
-                            }
-                        )
-                    }
-                    if (visible.isEmpty() && !loading) {
+                    if (entries.isEmpty() && !loading) {
                         item {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -1816,7 +1823,7 @@ private fun ModelsDialog(
                                 )
                                 Spacer(Modifier.height(6.dp))
                                 Text(
-                                    if (models.isEmpty()) "No models yet — check connection, then Refresh."
+                                    if (catalogs.isEmpty()) "No models yet — add provider keys in Settings, then Refresh."
                                     else "No models match \"$query\" — try fewer words.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant

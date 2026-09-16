@@ -45,7 +45,10 @@ import com.jnd.ngdroid.agent.LlmImage
 import com.jnd.ngdroid.data.ChatSession
 import com.jnd.ngdroid.data.NetworkMonitor
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -118,6 +121,10 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
 
     /** Last picked model per provider (session): switching back restores it. */
     private val lastModelByProvider = mutableMapOf<AgentProvider, String>()
+
+    /** All fetched catalogs, current provider first. Powers the grouped picker. */
+    private val _allCatalogs = MutableStateFlow<List<ProviderCatalog>>(emptyList())
+    val allCatalogs: StateFlow<List<ProviderCatalog>> = _allCatalogs.asStateFlow()
 
     /**
      * Live per-chat state. Each chat keeps its own transcript, agent history
@@ -496,6 +503,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         _models.value = catalogs.models(provider)
         _freeModels.value = catalogs.freeModels(provider)
         _modelsError.value = null
+        publishAggregates()
         viewModelScope.launch {
             try {
                 store.setProvider(provider)
@@ -650,6 +658,12 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /** Pick a model from any fetched provider: switches provider first. */
+    fun selectModelAcross(provider: AgentProvider, id: String) {
+        if (provider != _settings.value.provider) updateProvider(provider)
+        selectModel(id)
+    }
+
     /** Stop the visible chat's run. Background chats keep working. */
     fun stopGenerating() {
         val id = _activeChatId.value ?: return
@@ -693,6 +707,56 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /**
+     * Fetch + rank one provider's catalog (network only, no UI writes).
+     * Returns (models free-first, free subset). Pure fetch; caller caches.
+     */
+    private suspend fun fetchCatalog(
+        s: AgentSettings,
+        provider: AgentProvider,
+        key: String
+    ): Pair<List<String>, List<String>> {
+        val probe = buildProvider(s.copy(provider = provider), key, model = "")
+        val fetched = probe.listModels(key)
+        // Free = live suffix (`-free` on Zen, `:free` variants on OpenRouter).
+        val free = when (provider) {
+            AgentProvider.OPENCODE_ZEN ->
+                fetched.filter { it.trim().lowercase().endsWith("-free") }
+            AgentProvider.OPENROUTER ->
+                fetched.filter { it.trim().lowercase().endsWith(":free") }
+            else -> emptyList()
+        }
+        return rankModelsFreeFirst(fetched, free.toSet()) to rankModels(free)
+    }
+
+    /** Publish one provider's cached catalog to the single-provider UI + auto-pick. */
+    private fun publishCurrentCatalog(provider: AgentProvider) {
+        _freeModels.value = catalogs.freeModels(provider)
+        _models.value = catalogs.models(provider)
+        // Re-read: settings may have been restored while fetching.
+        val current = _settings.value
+        if (_models.value.isEmpty() || !settingsLoaded) return
+        // Auto-pick: first working free model when the user chose nothing yet.
+        if (current.selectedModel.isBlank() && _freeModels.value.isNotEmpty()) {
+            if (current.autoPickFreeModel) {
+                ZenProvider.autoDefault(_freeModels.value)?.let { selectModel(it) }
+            }
+        } else if (current.selectedModel.isNotBlank() && current.selectedModel !in _models.value) {
+            // Stored selection vanished from the catalog — clear it to re-pick.
+            selectModel("")
+            _modelsError.value = "Saved model is no longer offered — pick a new one."
+        }
+    }
+
+    /** Rebuild the all-providers aggregate, current provider first. */
+    private fun publishAggregates() {
+        val cur = _settings.value.provider
+        _allCatalogs.value = AgentProvider.entries
+            .filter { catalogs.models(it).isNotEmpty() }
+            .sortedWith(compareBy({ it != cur }, { it.displayName }))
+            .map { ProviderCatalog(it, catalogs.models(it), catalogs.freeModels(it)) }
+    }
+
+    /**
      * Fetch the model catalog for the current provider (cloud-direct).
      * Zen's /models is public: fetched without a key, free (`-free`) ids ranked
      * first, and the first free model auto-selected when nothing is chosen.
@@ -710,59 +774,90 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         if (needsKey && key.isEmpty()) {
             _modelsError.value =
                 "Add your ${s.provider.displayName} API key in Settings first."
+            catalogs.clear(s.provider)
             _models.value = emptyList()
             _freeModels.value = emptyList()
+            publishAggregates()
             return
         }
         viewModelScope.launch {
             _modelsLoading.value = true
             _modelsError.value = null
             try {
-                val probe = buildProvider(s, key, model = "")
-                val fetched = probe.listModels(key)
-                // Free = live suffix (`-free` on Zen, `:free` variants on OpenRouter).
-                val free = when (s.provider) {
-                    AgentProvider.OPENCODE_ZEN ->
-                        fetched.filter { it.trim().lowercase().endsWith("-free") }
-                    AgentProvider.OPENROUTER ->
-                        fetched.filter { it.trim().lowercase().endsWith(":free") }
-                    else -> emptyList()
-                }
-                catalogs.store(
-                    s.provider,
-                    rankModelsFreeFirst(fetched, free.toSet()),
-                    rankModels(free)
-                )
+                val (ranked, rankedFree) = fetchCatalog(s, s.provider, key)
+                catalogs.store(s.provider, ranked, rankedFree)
                 // Stale fetch (user switched provider mid-flight): keep it
                 // cached, never publish over the now-current provider's UI.
                 if (_settings.value.provider != s.provider) return@launch
-                _freeModels.value = catalogs.freeModels(s.provider)
-                _models.value = catalogs.models(s.provider)
-                // Re-read: [s] may predate the settings restore that finished
-                // while the network call was in flight.
-                val current = _settings.value
-                if (fetched.isEmpty()) {
+                publishAggregates()
+                if (catalogs.models(s.provider).isEmpty()) {
+                    _models.value = emptyList()
+                    _freeModels.value = emptyList()
                     _modelsError.value = "Provider returned no models."
-                } else if (settingsLoaded) {
-                    // Auto-pick: first working free model (Zen) when the user chose nothing yet.
-                    if (current.selectedModel.isBlank() && free.isNotEmpty()) {
-                        if (current.autoPickFreeModel) {
-                            ZenProvider.autoDefault(free)?.let { selectModel(it) }
-                        }
-                    } else if (current.selectedModel.isNotBlank() && current.selectedModel !in fetched) {
-                        // Stored selection vanished from the catalog — clear it to re-pick.
-                        selectModel("")
-                        _modelsError.value = "Saved model is no longer offered — pick a new one."
-                    }
+                } else {
+                    publishCurrentCatalog(s.provider)
                 }
             } catch (e: Exception) {
                 // Stale failure: must not wipe the now-current provider's UI.
                 if (_settings.value.provider != s.provider) return@launch
+                catalogs.clear(s.provider)
+                publishAggregates()
                 _modelsError.value = (e.message ?: "Fetch failed").take(220)
                 _models.value = emptyList()
                 _freeModels.value = emptyList()
             } finally {
                 _modelsLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Fetch catalogs for every provider that can list: Zen (public catalog)
+     * plus each keyed provider with a saved key. One provider's failure never
+     * touches another's cache; only the current provider's failure surfaces.
+     * Powers the all-providers picker and browser.
+     */
+    fun refreshAllModels() {
+        if (_modelsLoading.value) return
+        if (!netMonitor.isOnline.value) {
+            _modelsError.value = "You're offline — reconnect to fetch models."
+            return
+        }
+        val s = _settings.value
+        val targets = AgentProvider.entries.filter {
+            it == AgentProvider.OPENCODE_ZEN || s.apiKeyFor(it).isNotBlank()
+        }
+        if (targets.isEmpty()) {
+            _modelsError.value = "Add a provider API key in Settings first."
+            return
+        }
+        viewModelScope.launch {
+            _modelsLoading.value = true
+            _modelsError.value = null
+            val results = targets.map { p ->
+                async(Dispatchers.IO) {
+                    p to runCatching { fetchCatalog(s, p, s.apiKeyFor(p)) }.getOrNull()
+                }
+            }.awaitAll()
+            for ((p, res) in results) {
+                if (res != null) catalogs.store(p, res.first, res.second)
+            }
+            publishAggregates()
+            _modelsLoading.value = false
+            val cur = _settings.value
+            if (cur.provider == s.provider) {
+                if (catalogs.models(cur.provider).isEmpty()) {
+                    _models.value = emptyList()
+                    _freeModels.value = emptyList()
+                    val failed = results.any { (p, r) -> p == cur.provider && r == null }
+                    _modelsError.value = if (failed) "Provider returned no models."
+                    else "Add your ${cur.provider.displayName} API key in Settings first."
+                } else {
+                    publishCurrentCatalog(cur.provider)
+                }
+            } else {
+                // Switched mid-flight: converge the now-current provider.
+                refreshModels()
             }
         }
     }

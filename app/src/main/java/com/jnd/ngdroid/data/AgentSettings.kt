@@ -41,7 +41,10 @@ data class AgentSettings(
     // ---- user-created skills (prompt snippets) ----
     val customSkills: List<CustomSkill> = emptyList()
 ) {
-    fun activeApiKey(): String = when (provider) {
+    fun activeApiKey(): String = apiKeyFor(provider)
+
+    /** Saved key for one provider (blank = none). Trimmed. */
+    fun apiKeyFor(provider: AgentProvider): String = when (provider) {
         AgentProvider.GEMINI -> geminiApiKey.trim()
         AgentProvider.OPENAI -> openaiApiKey.trim()
         AgentProvider.ANTHROPIC -> anthropicApiKey.trim()

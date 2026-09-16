@@ -35,6 +35,40 @@ class ProviderCatalogs {
 fun shouldAutoRefreshOnKeySave(key: String, modelsEmpty: Boolean): Boolean =
     key.trim().isNotEmpty() && modelsEmpty
 
+/** One provider's fetched catalog (already free-first ranked). Pure. */
+data class ProviderCatalog(
+    val provider: AgentProvider,
+    val models: List<String>,
+    val freeModels: List<String>
+)
+
+/** One searchable row: model id tagged with its owner provider. Pure. */
+data class CatalogEntry(
+    val provider: AgentProvider,
+    val id: String,
+    val free: Boolean
+)
+
+/**
+ * Search every cached provider catalog at once, groups in [catalogs] order
+ * (caller puts current provider first), rows in each provider's ranked
+ * order. Tier filter applies per row. Pure; JVM-testable.
+ */
+fun searchAllCatalogs(
+    catalogs: List<ProviderCatalog>,
+    query: String,
+    tier: ModelTierFilter
+): List<CatalogEntry> {
+    val out = mutableListOf<CatalogEntry>()
+    for (c in catalogs) {
+        val freeSet = c.freeModels.toSet()
+        for (id in searchModelCatalog(c.models, query, tier, freeSet)) {
+            out.add(CatalogEntry(c.provider, id, id in freeSet))
+        }
+    }
+    return out
+}
+
 /**
  * Sort a live model catalog: de-duplicated, trimmed, alphabetical.
  * The catalog comes from the provider's listModels() — nothing is hardcoded.

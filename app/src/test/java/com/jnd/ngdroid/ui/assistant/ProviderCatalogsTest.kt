@@ -46,4 +46,53 @@ class ProviderCatalogsTest {
         // Catalog already present -> no fetch per keystroke.
         assertFalse(shouldAutoRefreshOnKeySave("sk-abc", false))
     }
+
+    private fun sampleCatalogs() = listOf(
+        ProviderCatalog(
+            AgentProvider.OPENCODE_ZEN,
+            listOf("mimo-v2.5-free", "big-pickle"),
+            listOf("mimo-v2.5-free")
+        ),
+        ProviderCatalog(
+            AgentProvider.GEMINI,
+            listOf("gemini-2.5-flash"),
+            emptyList()
+        )
+    )
+
+    @Test
+    fun allSearchKeepsProviderGroupsAndTags() {
+        val out = searchAllCatalogs(sampleCatalogs(), "", ModelTierFilter.ALL)
+        assertEquals(3, out.size)
+        assertEquals(AgentProvider.OPENCODE_ZEN, out[0].provider)
+        assertEquals("mimo-v2.5-free", out[0].id)
+        assertTrue(out[0].free)
+        assertEquals(AgentProvider.GEMINI, out[2].provider)
+        assertFalse(out[2].free)
+    }
+
+    @Test
+    fun allSearchFiltersAcrossProviders() {
+        val out = searchAllCatalogs(sampleCatalogs(), "mimo", ModelTierFilter.ALL)
+        assertEquals(1, out.size)
+        assertEquals("mimo-v2.5-free", out[0].id)
+    }
+
+    @Test
+    fun allSearchTierAppliesPerRow() {
+        val free = searchAllCatalogs(sampleCatalogs(), "", ModelTierFilter.FREE)
+        assertEquals(listOf("mimo-v2.5-free"), free.map { it.id })
+        val keyed = searchAllCatalogs(sampleCatalogs(), "", ModelTierFilter.KEYED)
+        assertEquals(2, keyed.size)
+        assertTrue(keyed.all { !it.free })
+    }
+
+    @Test
+    fun apiKeyForReadsEachProvider() {
+        val s = com.jnd.ngdroid.data.AgentSettings(geminiApiKey = "g-key", zenApiKey = "z-key")
+        assertEquals("g-key", s.apiKeyFor(AgentProvider.GEMINI))
+        assertEquals("z-key", s.apiKeyFor(AgentProvider.OPENCODE_ZEN))
+        assertEquals("", s.apiKeyFor(AgentProvider.OPENAI))
+        assertEquals("g-key", s.copy(provider = AgentProvider.GEMINI).activeApiKey())
+    }
 }
