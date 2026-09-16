@@ -142,4 +142,49 @@ class StubGuardTest {
         assertEquals("Still working on it, one moment please.", out)
         assertEquals(3, provider.calls)
     }
+
+    @Test
+    fun finalAfterErrorPrefersFriendlyOverStalePromise() {
+        assertEquals("FRIENDLY", finalAfterError("", "FRIENDLY", true))
+        assertEquals(
+            "FRIENDLY",
+            finalAfterError("Building your Colpitts oscillator.", "FRIENDLY", true)
+        )
+        // A partial that already carries a payload is still useful: keep it.
+        val withNetlist = "Here is a start:\n```spice\n* x\n.end\n```"
+        assertEquals(withNetlist, finalAfterError(withNetlist, "FRIENDLY", true))
+        // No tools ran: nothing promised, keep the model's own words.
+        assertEquals("Working on it.", finalAfterError("Working on it.", "FRIENDLY", false))
+    }
+
+    private class FailSecondProvider(val first: LlmResponse) : LlmProvider {
+        override val id = "test"
+        override val displayName = "Test"
+        override val defaultModel = "test"
+        var calls = 0
+        override suspend fun chat(req: LlmRequest): LlmResponse = throw AssertionError("no chat")
+        override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse {
+            calls++
+            if (calls == 1) {
+                if (first.text.isNotEmpty()) onPartial(first.text)
+                return first
+            }
+            throw IllegalStateException("429 FreeUsageLimitError")
+        }
+        override suspend fun listModels(apiKey: String) = emptyList<String>()
+    }
+
+    @Test
+    fun providerErrorAfterToolsYieldsFriendlyNotPromise() = runTest {
+        val provider = FailSecondProvider(
+            LlmResponse(
+                "Building your Colpitts oscillator — checking for a clean sinewave.",
+                listOf(ToolCall("1", "web_search", """{"query":"colpitts"}"""))
+            )
+        )
+        val out = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, registry())
+            .run("build colpitts oscillator", errorFormatter = { "FRIENDLY($it)" })
+        assertEquals("FRIENDLY(429 FreeUsageLimitError)", out)
+        assertEquals(2, provider.calls)
+    }
 }

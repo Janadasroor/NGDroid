@@ -55,6 +55,16 @@ fun isPromiseWithoutPayload(text: String): Boolean {
 }
 
 /**
+ * Provider died mid-run: never present a stale promise ("Building your
+ * Colpitts…") as the final answer. A partial that already carries a payload
+ * (code block, links) is still useful, so only bare promises are replaced
+ * by the friendly error. Pure; JVM-testable.
+ */
+fun finalAfterError(lastText: String, friendly: String, contentToolUsed: Boolean): String =
+    if (lastText.isBlank() || (contentToolUsed && isPromiseWithoutPayload(lastText))) friendly
+    else lastText
+
+/**
  * Repairs a resumed conversation so strict providers accept it: merges
  * consecutive same-role turns (text joined, tool calls and images unioned)
  * and drops leading orphan TOOL observations. TOOL turns never merge —
@@ -165,12 +175,12 @@ class AgentOrchestrator(
                     } catch (e2: Exception) {
                         onEvent(AgentEvent.Error("Provider error: ${e2.message}"))
                         val friendly = errorFormatter(e2.message ?: e2.javaClass.simpleName)
-                        return lastText.ifBlank { friendly }
+                        return finalAfterError(lastText, friendly, contentToolUsed)
                     }
                 } else {
                     onEvent(AgentEvent.Error("Provider error: ${e.message}"))
                     val friendly = errorFormatter(e.message ?: e.javaClass.simpleName)
-                    return lastText.ifBlank { friendly }
+                    return finalAfterError(lastText, friendly, contentToolUsed)
                 }
             }
             if (resp.text.isNotBlank()) lastText = resp.text
@@ -249,7 +259,7 @@ class AgentOrchestrator(
             text.ifBlank { "Stopped after ${config.maxIterations} iterations without a final answer." }
         } catch (e: Exception) {
             onEvent(AgentEvent.Error("Final-answer error: ${e.message}"))
-            lastText.ifBlank { errorFormatter(e.message ?: e.javaClass.simpleName) }
+            finalAfterError(lastText, errorFormatter(e.message ?: e.javaClass.simpleName), contentToolUsed)
         }
     }
 }
