@@ -163,4 +163,38 @@ class ZenProviderCopyTest {
         assertTrue(isVisionRejection("400 image_url unsupported for this model"))
         assertFalse(isVisionRejection("Rate limit exceeded"))
     }
+
+    @Test
+    fun clientFingerprintHeaders() {
+        val h = ZenProvider.zenHeaders("", "spiceagent-01")
+        // Gateway rate-limits anonymous calls without the opencode UA.
+        assertEquals("opencode/1.0", h["User-Agent"])
+        assertTrue(h["User-Agent"]!!.startsWith("opencode/"))
+        assertEquals("Bearer public", h["Authorization"])
+        assertEquals("spiceagent-01", h["x-opencode-session"])
+    }
+
+    @Test
+    fun fingerprintKeepsRealKeyAndDropsBlankSession() {
+        val h = ZenProvider.zenHeaders("USER_KEY", "")
+        assertEquals("Bearer USER_KEY", h["Authorization"])
+        assertEquals("opencode/1.0", h["User-Agent"])
+        assertFalse(h.containsKey("x-opencode-session"))
+    }
+
+    @Test
+    fun chatSendsFingerprint() = runTest {
+        var capturedHeaders: Map<String, String> = emptyMap()
+        val sample = """{"choices":[{"message":{"role":"assistant","content":"ok"}}]}"""
+        val provider = ZenProvider(
+            http = { _, headers, _ ->
+                capturedHeaders = headers
+                sample
+            },
+            apiKey = ""
+        )
+        provider.chat(LlmRequest(systemPrompt = "s", messages = listOf(ChatMessage(ChatRole.USER, "hi"))))
+        assertEquals("Bearer public", capturedHeaders["Authorization"])
+        assertEquals("opencode/1.0", capturedHeaders["User-Agent"])
+    }
 }

@@ -48,15 +48,7 @@ class ZenProvider(
 
     override suspend fun chat(req: LlmRequest): LlmResponse = withContext(Dispatchers.IO) {
         val requested = normalizeModelId(model)
-        // Free tier without a user key: gateway accepts `public` as the bearer.
-        val bearer = apiKey.ifBlank { PUBLIC_BEARER }
-        val headers = mutableMapOf(
-            "Authorization" to "Bearer $bearer",
-            "Content-Type" to "application/json"
-        )
-        if (!sessionId.isNullOrBlank()) {
-            headers["x-opencode-session"] = sessionId
-        }
+        val headers = zenHeaders(apiKey, sessionId)
         if (isResponsesOnlyModel(requested)) {
             val url = "$baseUrl/responses"
             val body = buildResponsesJson(requested, req.systemPrompt, req.messages, req.tools, req.temperature, req.maxTokens)
@@ -71,6 +63,7 @@ class ZenProvider(
     override suspend fun listModels(apiKey: String): List<String> = withContext(Dispatchers.IO) {
         val builder = Request.Builder()
             .url("$baseUrl/models")
+            .header("User-Agent", OPENCODE_USER_AGENT)
             .get()
         // /models is public on Zen: only send auth when we have a key.
         if (apiKey.isNotBlank()) {
@@ -93,14 +86,7 @@ class ZenProvider(
         withContext(Dispatchers.IO) {
             val stream = streamHttp ?: return@withContext super.streamChat(req, onPartial)
             val requested = normalizeModelId(model)
-            val bearer = apiKey.ifBlank { PUBLIC_BEARER }
-            val headers = mutableMapOf(
-                "Authorization" to "Bearer $bearer",
-                "Content-Type" to "application/json"
-            )
-            if (!sessionId.isNullOrBlank()) {
-                headers["x-opencode-session"] = sessionId
-            }
+            val headers = zenHeaders(apiKey, sessionId)
             if (isResponsesOnlyModel(requested)) {
                 val url = "$baseUrl/responses"
                 val body = buildResponsesJson(
@@ -496,6 +482,28 @@ class ZenProvider(
          * /chat/completions (FreeUsageLimitError rather than AuthError).
          */
         const val PUBLIC_BEARER = "public"
+
+        /**
+         * Client fingerprint the Zen gateway rate-limits on. Anonymous calls
+         * with a stock HTTP UA (okhttp/…) get FreeUsageLimitError even when
+         * quota exists; the same call as `opencode/…` succeeds (verified live
+         * with mimo-v2.5-free). Mirrors the CLI identity from opencode's
+         * session/llm/request.ts (`User-Agent: opencode/<version>`).
+         */
+        const val OPENCODE_USER_AGENT = "opencode/1.0"
+
+        /** Auth + fingerprint headers for every Zen call. Pure; JVM-testable. */
+        fun zenHeaders(apiKey: String, sessionId: String?): Map<String, String> {
+            val headers = mutableMapOf(
+                "Authorization" to "Bearer ${apiKey.ifBlank { PUBLIC_BEARER }}",
+                "Content-Type" to "application/json",
+                "User-Agent" to OPENCODE_USER_AGENT
+            )
+            if (!sessionId.isNullOrBlank()) {
+                headers["x-opencode-session"] = sessionId
+            }
+            return headers
+        }
 
         const val UNSUPPORTED_RESPONSES_ONLY_MODEL = "muse-spark-1.3-contributor-free"
 
