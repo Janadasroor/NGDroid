@@ -64,6 +64,24 @@ android {
     }
 }
 
+// Friendly APK names: NGDroid-v1.0-debug-universal.apk instead of app-*.apk.
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val abi = output.filters
+                .firstOrNull {
+                    it.filterType ==
+                        com.android.build.api.variant.FilterConfiguration.FilterType.ABI
+                }
+                ?.identifier ?: "universal"
+            val buildType = variant.buildType ?: "debug"
+            output.outputFileName.set(
+                output.versionName.map { v -> "NGDroid-v$v-$buildType-$abi.apk" }
+            )
+        }
+    }
+}
+
 dependencies {
     implementation(platform(libs.kotlin.bom))
     implementation(platform(libs.androidx.compose.bom))
