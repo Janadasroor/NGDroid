@@ -6,7 +6,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import android.widget.Toast
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -96,6 +98,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -243,6 +246,11 @@ fun AssistantScreen(
     // later effect consumes.)
     var pendingCameraShot by remember { mutableStateOf(false) }
     var cameraGrantBump by remember { mutableIntStateOf(0) }
+    // True once we've asked: a later denial with no rationale dialog means
+    // "Don't ask again" — firing the launcher then is a silent no-op, so we
+    // route to app Settings instead. Survives rotation.
+    var cameraAskedBefore by rememberSaveable { mutableStateOf(false) }
+    var showCameraSettingsDialog by remember { mutableStateOf(false) }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -284,8 +292,21 @@ fun AssistantScreen(
                 context, android.Manifest.permission.CAMERA
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            pendingCameraShot = true
-            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            val activity = context as? android.app.Activity
+            val showRationale = activity?.let {
+                ActivityCompat.shouldShowRequestPermissionRationale(
+                    it, android.Manifest.permission.CAMERA
+                )
+            } == true
+            if (cameraAskedBefore && !showRationale) {
+                // "Don't ask again": the launcher would fire silently into
+                // the void — send the user to app Settings instead.
+                showCameraSettingsDialog = true
+            } else {
+                cameraAskedBefore = true
+                pendingCameraShot = true
+                cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            }
             return
         }
         val result = runCatching {
@@ -946,6 +967,39 @@ fun AssistantScreen(
                 Spacer(Modifier.height(28.dp))
             }
         }
+    }
+
+    if (showCameraSettingsDialog) {
+        AlertDialog(
+            onDismissRequest = { showCameraSettingsDialog = false },
+            shape = LocalDialogShape.current,
+            title = { Text("Camera is turned off") },
+            text = {
+                Text("NGDroid needs camera access for photo attachments. Open app settings to turn it on.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCameraSettingsDialog = false
+                        runCatching {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", appContext.packageName, null)
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        }
+                    },
+                    shape = LocalButtonShape.current
+                ) { Text("Open Settings") }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showCameraSettingsDialog = false },
+                    shape = LocalButtonShape.current
+                ) { Text("Cancel") }
+            }
+        )
     }
 
     if (deleteTargetId != null) {
