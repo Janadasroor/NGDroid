@@ -1,5 +1,40 @@
 package com.jnd.ngdroid.ui.assistant
 
+import com.jnd.ngdroid.data.AgentProvider
+
+/**
+ * Per-provider model catalog cache: switching providers (or pasting a key)
+ * must never wipe another provider's already-fetched list. The ViewModel
+ * publishes from here; pure store, JVM-testable.
+ */
+class ProviderCatalogs {
+    private val models = mutableMapOf<AgentProvider, List<String>>()
+    private val free = mutableMapOf<AgentProvider, List<String>>()
+
+    fun models(provider: AgentProvider): List<String> = models[provider].orEmpty()
+    fun freeModels(provider: AgentProvider): List<String> = free[provider].orEmpty()
+    fun has(provider: AgentProvider): Boolean = models.containsKey(provider)
+
+    fun store(provider: AgentProvider, models: List<String>, freeModels: List<String>) {
+        this.models[provider] = models
+        this.free[provider] = freeModels
+    }
+
+    fun clear(provider: AgentProvider) {
+        models.remove(provider)
+        free.remove(provider)
+    }
+}
+
+/**
+ * True when saving [key] should trigger a catalog fetch: key present for the
+ * current provider but its list is still empty (fresh paste, nothing yet
+ * fetched). Prevents a fetch per keystroke once the catalog exists.
+ * Pure; JVM-testable.
+ */
+fun shouldAutoRefreshOnKeySave(key: String, modelsEmpty: Boolean): Boolean =
+    key.trim().isNotEmpty() && modelsEmpty
+
 /**
  * Sort a live model catalog: de-duplicated, trimmed, alphabetical.
  * The catalog comes from the provider's listModels() — nothing is hardcoded.

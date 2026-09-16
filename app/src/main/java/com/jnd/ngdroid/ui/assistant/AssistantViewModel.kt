@@ -103,7 +103,6 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     /** Live catalog from the provider's listModels(). Never hardcoded in app code. */
     private val _models = MutableStateFlow<List<String>>(emptyList())
     val models: StateFlow<List<String>> = _models.asStateFlow()
-
     private val _modelsLoading = MutableStateFlow(false)
     val modelsLoading: StateFlow<Boolean> = _modelsLoading.asStateFlow()
 
@@ -113,6 +112,12 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     /** Free-tier subset of [models] (Zen `-free` ids), ranked first. Empty for Gemini. */
     private val _freeModels = MutableStateFlow<List<String>>(emptyList())
     val freeModels: StateFlow<List<String>> = _freeModels.asStateFlow()
+
+    /** Per-provider catalogs: switching providers never wipes another's list. */
+    private val catalogs = ProviderCatalogs()
+
+    /** Last picked model per provider (session): switching back restores it. */
+    private val lastModelByProvider = mutableMapOf<AgentProvider, String>()
 
     /**
      * Live per-chat state. Each chat keeps its own transcript, agent history
@@ -480,17 +485,21 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Switch provider; clears models + selection (catalogs are per-provider). */
+    /** Switch provider; restores its cached catalog + last pick (no wipe). */
     fun updateProvider(provider: AgentProvider) {
-        if (_settings.value.provider == provider) return
-        _settings.value = _settings.value.copy(provider = provider, selectedModel = "")
-        _models.value = emptyList()
+        val old = _settings.value.provider
+        if (old == provider) return
+        val currentPick = _settings.value.selectedModel.trim()
+        if (currentPick.isNotEmpty()) lastModelByProvider[old] = currentPick
+        val restoredPick = lastModelByProvider[provider].orEmpty()
+        _settings.value = _settings.value.copy(provider = provider, selectedModel = restoredPick)
+        _models.value = catalogs.models(provider)
+        _freeModels.value = catalogs.freeModels(provider)
         _modelsError.value = null
-        _freeModels.value = emptyList()
         viewModelScope.launch {
             try {
                 store.setProvider(provider)
-                store.setSelectedModel("")
+                store.setSelectedModel(restoredPick)
             } catch (_: Exception) { }
         }
         // Zen needs no key for /models: fetch immediately so free models show.
@@ -511,6 +520,11 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             try { store.setKey(provider, key) } catch (_: Exception) { }
         }
+        // Pasting a key for the current provider must populate its catalog:
+        // nothing else triggers a fetch (the provider didn't change).
+        if (provider == _settings.value.provider &&
+            shouldAutoRefreshOnKeySave(key, _models.value.isEmpty())
+        ) refreshModels()
     }
 
     /** Persist all provider keys at once. */
@@ -714,8 +728,16 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                         fetched.filter { it.trim().lowercase().endsWith(":free") }
                     else -> emptyList()
                 }
-                _freeModels.value = rankModels(free)
-                _models.value = rankModelsFreeFirst(fetched, free.toSet())
+                catalogs.store(
+                    s.provider,
+                    rankModelsFreeFirst(fetched, free.toSet()),
+                    rankModels(free)
+                )
+                // Stale fetch (user switched provider mid-flight): keep it
+                // cached, never publish over the now-current provider's UI.
+                if (_settings.value.provider != s.provider) return@launch
+                _freeModels.value = catalogs.freeModels(s.provider)
+                _models.value = catalogs.models(s.provider)
                 // Re-read: [s] may predate the settings restore that finished
                 // while the network call was in flight.
                 val current = _settings.value
@@ -734,6 +756,8 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                 }
             } catch (e: Exception) {
+                // Stale failure: must not wipe the now-current provider's UI.
+                if (_settings.value.provider != s.provider) return@launch
                 _modelsError.value = (e.message ?: "Fetch failed").take(220)
                 _models.value = emptyList()
                 _freeModels.value = emptyList()
