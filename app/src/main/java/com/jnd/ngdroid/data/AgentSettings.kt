@@ -88,4 +88,10 @@ data class AgentSettings(
 
     fun coercedMaxIterations(): Int = maxIterations.coerceIn(4, 20)
     fun coercedStubRetries(): Int = stubRetries.coerceIn(0, 3)
+
+    /** Redacted: the generated data-class toString would print API keys into logs/crash reports. */
+    override fun toString(): String =
+        "AgentSettings(provider=$provider, selectedModel=${selectedModel.ifBlank { "<none>" }}, " +
+            "sessionId=$sessionId, keys=[REDACTED], maxIterations=$maxIterations, " +
+            "stubRetries=$stubRetries, customSkills=${customSkills.size})"
 }

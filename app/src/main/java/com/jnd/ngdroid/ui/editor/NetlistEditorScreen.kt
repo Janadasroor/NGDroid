@@ -58,6 +58,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -706,7 +707,7 @@ fun NetlistEditorScreen(
 
             // Status Banner & Progress Indicator
             // Elapsed ticker for the live run (120 s engine timeout).
-            var runElapsedSec by remember { mutableStateOf(0L) }
+            var runElapsedSec by remember { mutableLongStateOf(0L) }
             androidx.compose.runtime.LaunchedEffect(state.isSimulating) {
                 if (state.isSimulating) {
                     val start = android.os.SystemClock.elapsedRealtime()

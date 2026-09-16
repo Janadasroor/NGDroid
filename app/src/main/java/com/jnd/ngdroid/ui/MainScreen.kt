@@ -35,6 +35,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -88,7 +89,7 @@ fun MainScreen(
     // Back: any tab returns to EDITOR first; on EDITOR double-press exits.
     // Inner handlers (drawer, dialogs) consume first — this is the fallback.
     val context = LocalContext.current
-    var lastBackPress by remember { mutableStateOf(0L) }
+    var lastBackPress by remember { mutableLongStateOf(0L) }
     BackHandler(enabled = true) {
         if (selectedTab != AppTab.EDITOR) {
             selectedTab = AppTab.EDITOR

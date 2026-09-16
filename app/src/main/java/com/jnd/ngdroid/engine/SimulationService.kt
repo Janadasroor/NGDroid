@@ -31,25 +31,18 @@ class SimulationService : Service() {
                 action = ACTION_START
                 putExtra(EXTRA_TITLE, title)
             }
-            if (Build.VERSION.SDK_INT >= 26) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
-            }
+            // minSdk is 26: always a foreground-service launch.
+            context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
             val intent = Intent(context, SimulationService::class.java).apply {
                 action = ACTION_STOP
             }
-            // startService() from the background throws on API 26+; fall
+            // startService() from the background throws; fall
             // back to a direct stopService() which needs no launch.
             try {
-                if (Build.VERSION.SDK_INT >= 26) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startForegroundService(intent)
             } catch (_: IllegalStateException) {
                 try {
                     context.stopService(Intent(context, SimulationService::class.java))
