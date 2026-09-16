@@ -409,7 +409,7 @@ class SimulationViewModel(
         // Foreground priority so Oreo doesn't kill long runs when backgrounded.
         com.jnd.ngdroid.engine.SimulationService.ProgressHook.current = {
             val s = repository.state.value
-            if (s.isSimulating) s.statusText else null
+            if (s.isSimulating || s.isPaused) s.statusText else null
         }
         try {
             com.jnd.ngdroid.engine.SimulationService.start(app, activeTitle())

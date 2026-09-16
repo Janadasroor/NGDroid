@@ -409,6 +409,11 @@ fun NetlistEditorScreen(
                     Icon(Icons.Default.Save, contentDescription = "Save circuit")
                 }
 
+                com.jnd.ngdroid.ui.console.OpTableButton(
+                    repository = repository,
+                    modifier = Modifier.size(48.dp)
+                )
+
                 // More menu: open file, recents, wrap, paste, history, new, save-as
                 Box {
                     IconButton(
@@ -699,6 +704,18 @@ fun NetlistEditorScreen(
             }
 
             // Status Banner & Progress Indicator
+            // Elapsed ticker for the live run (120 s engine timeout).
+            var runElapsedSec by remember { mutableStateOf(0L) }
+            androidx.compose.runtime.LaunchedEffect(state.isSimulating) {
+                if (state.isSimulating) {
+                    val start = android.os.SystemClock.elapsedRealtime()
+                    runElapsedSec = 0L
+                    while (repository.state.value.isSimulating) {
+                        kotlinx.coroutines.delay(1000)
+                        runElapsedSec = (android.os.SystemClock.elapsedRealtime() - start) / 1000
+                    }
+                }
+            }
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant,
@@ -710,10 +727,16 @@ fun NetlistEditorScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val statusLine = if (state.isPaused) {
+                            "Status: ${state.statusText} — Resume available"
+                        } else {
+                            "Status: ${state.statusText}"
+                        }
                         Text(
-                            text = "Status: ${state.statusText}",
+                            text = statusLine,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (state.isPaused) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -725,7 +748,16 @@ fun NetlistEditorScreen(
                                 "Autosaved • ${timeFmt.format(Date(it))}"
                             } ?: "Autosaved"
                         }
-                        if (state.totalPointCount > 0) {
+                        val timeoutSec = com.jnd.ngdroid.engine.SimulationRepository.RUN_TIMEOUT_MS / 1000
+                        if (state.isSimulating) {
+                            Text(
+                                text = "${runElapsedSec}s / ${timeoutSec}s • $autosaveLabel",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else if (state.totalPointCount > 0) {
                             Text(
                                 text = "${state.totalPointCount} pts • $autosaveLabel",
                                 style = MaterialTheme.typography.labelSmall,
@@ -754,6 +786,11 @@ fun NetlistEditorScreen(
                     } else {
                         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                     }
+                } else if (state.isPaused) {
+                    LinearProgressIndicator(
+                        progress = { state.progressFraction ?: 0.5f },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 

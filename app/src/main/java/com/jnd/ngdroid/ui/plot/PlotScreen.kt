@@ -210,7 +210,19 @@ fun PlotScreen(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    if (state.totalPointCount > 0) {
+                    if (state.isPaused) {
+                        Text(
+                            text = "${state.statusText} — Resume available",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    } else if (state.isSimulating) {
+                        Text(
+                            text = state.statusText,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (state.totalPointCount > 0) {
                         Text(
                             text = "${state.totalPointCount} data points",
                             style = MaterialTheme.typography.labelSmall,
@@ -220,6 +232,7 @@ fun PlotScreen(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    com.jnd.ngdroid.ui.console.OpTableButton(repository = repository)
                     IconButton(onClick = { showCursors = !showCursors }) {
                         Icon(
                             Icons.Default.CenterFocusWeak,
