@@ -118,9 +118,9 @@ class AndroidUploadStore(private val appContext: Context) {
 
 /**
  * Local content for the agent prompt: file name → excerpt/metadata.
- * Raster images are ALSO sent as vision payloads (see [loadVisionImages]),
- * so the text here is grounding metadata, not a blindness disclaimer.
- * PDFs and text docs report an excerpt; anything else reports metadata.
+ * Raster images ALSO travel as vision payloads ([loadVisionImages]); the
+ * text here is grounding metadata. PDFs/docs report an excerpt, anything
+ * else reports metadata.
  */
 suspend fun describeUploads(
     store: AndroidUploadStore,

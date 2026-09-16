@@ -180,7 +180,6 @@ fun DataScreen(
             )
 
             if (activePlot != null && activePlot.scaleVector != null && activePlot.scaleVector.values.isNotEmpty()) {
-                    // Copy CSV
                     IconButton(onClick = {
                         val csv = exportCsvUseCase.generateCsv(activePlot)
                         clipboardManager.setText(AnnotatedString(csv))
@@ -193,7 +192,6 @@ fun DataScreen(
                         )
                     }
 
-                    // Save to Downloads Button (Oreo-friendly)
                     IconButton(onClick = { savePlot(activePlot) }) {
                         Icon(
                             Icons.Default.Download,
@@ -204,7 +202,6 @@ fun DataScreen(
         }
         }
 
-            // Action row: scrolls horizontally so buttons keep natural width.
             if (activePlot != null && activePlot.scaleVector != null && activePlot.scaleVector.values.isNotEmpty()) {
                 Row(
                     modifier = Modifier
@@ -213,7 +210,6 @@ fun DataScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Share CSV Button
                     Button(
                         onClick = { exportCsvUseCase.shareCsv(context, activePlot) },
                         shape = LocalButtonShape.current
@@ -226,7 +222,6 @@ fun DataScreen(
                         Spacer(Modifier.width(6.dp))
                         Text("Share CSV", maxLines = 1)
                     }
-                    // Lab report: share PDF or save to Downloads (same permission path).
                     OutlinedButton(
                         onClick = {
                             scope.launch {
@@ -307,7 +302,6 @@ fun DataScreen(
             }
         }
 
-        // COLLAPSIBLE HISTORY SELECTOR DROPDOWN
         if (history.isNotEmpty()) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
@@ -384,7 +378,6 @@ fun DataScreen(
             }
         }
 
-        // Table Content Container
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -420,7 +413,6 @@ fun DataScreen(
                         .fillMaxSize()
                         .padding(8.dp)
                 ) {
-                    // Scrollable Table Header
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

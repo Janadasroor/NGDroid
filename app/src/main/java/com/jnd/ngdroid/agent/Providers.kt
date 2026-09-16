@@ -10,11 +10,7 @@ enum class ProviderId {
 }
 
 /**
- * Provider configuration (cloud-direct only).
- *
- * No baseUrl: providers always hit their cloud endpoints
- * (Gemini, OpenAI -> api.openai.com/v1, Anthropic -> api.anthropic.com/v1,
- * Zen -> https://opencode.ai/zen/v1).
+ * Provider configuration (cloud endpoints only — no baseUrl override).
  * Provide the user's own API key. `model` overrides the provider default.
  * `sessionId` overrides the Zen `x-opencode-session` header value;
  * null = provider default, blank = omit the header.

@@ -90,7 +90,6 @@ fun SettingsScreen(
             }
         }
 
-        // Theme & Color Section
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
@@ -240,7 +239,6 @@ fun SettingsScreen(
             }
         }
 
-        // Netlist Editor Settings
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
@@ -301,7 +299,6 @@ fun SettingsScreen(
             }
         }
 
-        // Plot Canvas Styling
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)

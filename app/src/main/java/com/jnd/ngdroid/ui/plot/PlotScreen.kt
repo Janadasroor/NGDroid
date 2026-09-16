@@ -77,13 +77,11 @@ fun PlotScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    // Interactive Zoom / Pan State
     var zoomScaleX by remember { mutableFloatStateOf(1.0f) }
     var zoomScaleY by remember { mutableFloatStateOf(1.0f) }
     var panOffsetX by remember { mutableFloatStateOf(0.0f) }
     var panOffsetY by remember { mutableFloatStateOf(0.0f) }
 
-    // Cursors State
     var showCursors by remember { mutableStateOf(false) }
     var cursor1Frac by remember { mutableFloatStateOf(0.3f) }
     var cursor2Frac by remember { mutableFloatStateOf(0.7f) }
@@ -91,10 +89,8 @@ fun PlotScreen(
     // Long circuit paths wrap to 3+ lines: single-line + tap to expand.
     var titleExpanded by remember { mutableStateOf(false) }
 
-    // Collapsible Net Labels Panel (Landscape & Floating)
     var isNetsPanelExpanded by remember { mutableStateOf(false) }
 
-    // Net Measurements Dialog
     var selectedMeasurements by remember { mutableStateOf<NetMeasurements?>(null) }
     val textMeasurer = rememberTextMeasurer()
 
@@ -163,7 +159,7 @@ fun PlotScreen(
         }
     )
 
-    // In-app share sheet offer: prepared file + resolved app targets.
+    // In-app share sheet offer.
     var shareOffer by remember { mutableStateOf<ShareOffer?>(null) }
 
     fun savePngWithPermission() {

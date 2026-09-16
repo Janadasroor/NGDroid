@@ -40,10 +40,9 @@ fun parseSseEvents(raw: String): List<SseEvent> =
     raw.replace("\r\n", "\n").split("\n\n").mapNotNull { parseSseBlock(it) }
 
 /**
- * Accumulates OpenAI-style `chat/completions` SSE deltas (shared by the
- * OpenAI, OpenRouter, Zen-chat and Go-chat routes): text fragments plus
- * index-keyed tool-call id/name/argument fragments. Pure apart from the
- * [onPartial] callback, which fires with the full text so far.
+ * Accumulates OpenAI-style `chat/completions` SSE deltas into text plus
+ * index-keyed tool calls. Pure apart from [onPartial], which fires with
+ * the full text so far.
  */
 class ChatStreamAccumulator(private val onPartial: (String) -> Unit = {}) {
     private val json = Json { ignoreUnknownKeys = true }

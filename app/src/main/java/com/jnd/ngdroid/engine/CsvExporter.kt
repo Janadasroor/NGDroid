@@ -23,13 +23,11 @@ object CsvExporter {
 
         val sb = StringBuilder()
         
-        // CSV Header
         val headers = mutableListOf<String>()
         headers.add("\"${scaleVec.name}\"")
         activeDataVecs.forEach { headers.add("\"${it.name}\"") }
         sb.append(headers.joinToString(",")).append("\n")
 
-        // Rows
         val rowCount = scaleVec.values.size
         for (i in 0 until rowCount) {
             val row = mutableListOf<String>()
@@ -55,7 +53,6 @@ object CsvExporter {
         val cacheDir = File(context.cacheDir, "csv_exports")
         cacheDir.mkdirs()
 
-        // Enforce Retention Policy: Max 5 files + delete older than 24 hours
         cleanOldCacheFiles(cacheDir)
 
         val fileName = csvFileName(plot)
@@ -128,14 +125,12 @@ object CsvExporter {
         val now = System.currentTimeMillis()
         val oneDayMillis = 24 * 60 * 60 * 1000L
 
-        // Delete files older than 24 hours
         files.forEach { file ->
             if (now - file.lastModified() > oneDayMillis) {
                 file.delete()
             }
         }
 
-        // Keep maximum 5 files, delete oldest excess files
         val remainingFiles = cacheDir.listFiles { file -> file.extension == "csv" }?.sortedByDescending { it.lastModified() } ?: return
         if (remainingFiles.size > 5) {
             remainingFiles.drop(5).forEach { file ->

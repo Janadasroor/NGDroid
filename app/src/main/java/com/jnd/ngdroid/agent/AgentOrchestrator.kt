@@ -71,9 +71,8 @@ fun isPromiseWithoutPayload(text: String, policy: AgentContentPolicy = AgentCont
 
 /**
  * Provider died mid-run: never present a stale promise ("Building your
- * Colpitts…") as the final answer. A partial that already carries a payload
- * (code block, links) is still useful, so only bare promises are replaced
- * by the friendly error. Pure; JVM-testable.
+ * Colpitts…") as the final answer — unless the partial already carries a
+ * payload (code block, links), which stays useful. Pure; JVM-testable.
  */
 fun finalAfterError(
     lastText: String,
@@ -86,10 +85,9 @@ fun finalAfterError(
 
 /**
  * Repairs a resumed conversation so strict providers accept it: merges
- * consecutive same-role turns (text joined, tool calls and images unioned)
- * and drops leading orphan TOOL observations. TOOL turns never merge —
- * each observation keeps its own tool_call_id for tool_use/tool_result
- * pairing (Anthropic rejects mismatched pairs). Pure; JVM-testable.
+ * consecutive same-role turns and drops leading orphan TOOL observations.
+ * TOOL turns never merge — each keeps its tool_call_id for pairing
+ * (Anthropic rejects mismatches). Pure; JVM-testable.
  */
 fun repairHistory(history: List<ChatMessage>): List<ChatMessage> {
     val out = mutableListOf<ChatMessage>()
@@ -165,12 +163,7 @@ const val STUB_RETRY_NUDGE: String =
             "![description](image-url) images, or ${HostDefaults.DOWNLOAD_DIR_LABEL} file locations. " +
         "Do not end with another promise."
 
-/**
- * Trailer appended to a final answer that is a bare promise after the model
- * already tried to act (any tool call, even an unknown one): the run stalled
- * instead of delivering, so say so and point at Regenerate rather than
- * leaving a dead-end "coming up" message.
- */
+/** Trailer for a final answer that is a bare promise after acting: points at Regenerate. */
 const val STALLED_TRAILER: String =
     "The run stopped before delivering results — tap Regenerate to continue from here."
 
@@ -226,11 +219,9 @@ class AgentOrchestrator(
                 return provider.streamChat(req, forwardPartial)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                // A 400/422 on an image-bearing request counts as a vision
-                // rejection even without image wording — gateways often
-                // return bare `Upstream request failed: [400]`.
                 val msg = e.message.orEmpty()
                 val hasImages = conversation.any { it.images.isNotEmpty() }
+                // Bare 400/422s count too (see isBadRequest).
                 if (hasImages && (isVisionRejection(msg) || isBadRequest(msg))) {
                     for (i in conversation.indices) {
                         if (conversation[i].images.isNotEmpty()) {
@@ -290,10 +281,8 @@ class AgentOrchestrator(
 
             if (resp.toolCalls.isEmpty()) {
                 val text = resp.text.ifBlank { lastText.ifBlank { "(empty response)" } }
-                // Empty guard: the model went quiet after tools ran (common
-                // right after a vision turn the model chokes on). Strip any
-                // images, nudge once for a text-only answer from the results
-                // already in context — never show "(empty response)".
+                // Never show "(empty response)": strip images, nudge once for
+                // a text-only answer from the results already in context.
                 if (resp.text.isBlank() && lastText.isBlank() &&
                     stubRetries < config.maxStubRetries && (toolAttempted || contentToolUsed)
                 ) {
@@ -309,9 +298,8 @@ class AgentOrchestrator(
                     continue
                 }
                 if (resp.text.isBlank() && lastText.isBlank()) return EMPTY_FINAL_FALLBACK
-                // Stub guard: tools ran but the "final" reply is a promise with
-                // no netlist, link, or image — grant one nudge turn instead of
-                // showing "coming up" with nothing behind it.
+                // Stub guard: tools ran but the "final" is a promise with no
+                // payload — grant one nudge turn instead.
                 if (stubRetries < config.maxStubRetries &&
                     contentToolUsed && isPromiseWithoutPayload(text, config.contentPolicy)
                 ) {
@@ -320,9 +308,8 @@ class AgentOrchestrator(
                     conversation.add(ChatMessage(ChatRole.USER, config.contentPolicy.stubRetryNudge))
                     continue
                 }
-                // Stalled run: the model tried to act (any tool call) but the
-                // final is a bare promise — say so and point at Regenerate
-                // instead of leaving a dead-end "coming up" message.
+                // Stalled run: the model acted but the final is a bare
+                // promise — say so and point at Regenerate.
                 if (toolAttempted && isPromiseWithoutPayload(text, config.contentPolicy)) {
                     val out = "$text\n\n_${config.contentPolicy.stalledTrailer}_"
                     if (resp.text.isNotBlank()) onEvent(AgentEvent.Message(out))

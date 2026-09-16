@@ -29,8 +29,6 @@ data class AgentSettings(
     val selectedModel: String = "",
     val sessionId: String = HostDefaults.DEFAULT_SESSION_ID,
     // ---- skills (built-in tool toggles, all on by default) ----
-    // Single map keyed by tool id: adding a tool no longer touches this class.
-    // Unknown ids default to on (see isSkillEnabled).
     val skills: Map<String, Boolean> = defaultSkills(),
     // ---- reasoning limits ----
     val maxIterations: Int = 12,

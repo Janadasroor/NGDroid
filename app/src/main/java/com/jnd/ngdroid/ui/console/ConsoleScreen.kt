@@ -106,7 +106,6 @@ fun ConsoleScreen(repository: SimulationRepository) {
                 Row {
                     OpTableButton(repository = repository)
 
-                    // Share Logs Button
                     if (state.logs.isNotEmpty()) {
                         IconButton(onClick = {
                             val logText = state.logs.joinToString("\n")
@@ -125,7 +124,6 @@ fun ConsoleScreen(repository: SimulationRepository) {
                         }
                     }
 
-                    // Clear Logs Button
                     IconButton(onClick = {
                         val previousLogs = state.logs
                         repository.clearLogs()

@@ -175,16 +175,15 @@ class AssistantViewModel(
     private val persistMutex = Mutex()
 
     /**
-     * True once the persisted settings arrived. The auto-pick below must wait
-     * for it: picking a default from blank (not-yet-loaded) settings would
-     * overwrite — and permanently lose — the user's saved model.
+     * True once the persisted settings arrived. Auto-pick must wait for it:
+     * picking from blank (not-yet-loaded) settings would permanently lose
+     * the user's saved model.
      */
     private var settingsLoaded = false
 
     /**
      * True once the resumed chat's own model was applied after cold start.
-     * The settings collector would otherwise overwrite a restore done before
-     * the persisted settings arrive, so the restore waits for both streams.
+     * Without this the settings collector would overwrite an early restore.
      */
     private var modelRestoreDone = false
 
@@ -770,9 +769,8 @@ class AssistantViewModel(
 
     /**
      * Fetch the model catalog for the current provider (cloud-direct).
-     * Zen's /models is public: fetched without a key, free (`-free`) ids ranked
-     * first, and the first free model auto-selected when nothing is chosen.
-     * Gemini still needs its key. No hardcoded fallbacks anywhere.
+     * Free ids rank first; the first free model auto-selects when nothing
+     * is chosen. No hardcoded fallbacks anywhere.
      */
     fun refreshModels() {
         if (_modelsLoading.value) return
@@ -1113,9 +1111,8 @@ class AssistantViewModel(
             try {
                 val provider = buildProvider(s, key, model)
                 val stack = buildAgentStack(s, simBridge, provider)
-                // Raw provider failures become short friendly sentences (no JSON/URLs).
-                // Pending tool args let observations embed their source URL/counts
-                // (fetch reads, search totals) for the thinking summary.
+                // Pending tool args let observations embed source URL/counts
+                // for the thinking summary.
                 val pendingArgs = ArrayDeque<Pair<String, String>>()
                 // Live streaming bubble: created on the first text delta, then
                 // refreshed (UI mirrored at ~8Hz so markdown keeps up).
@@ -1199,9 +1196,8 @@ class AssistantViewModel(
             } finally {
                 rt.job = null
                 setChatThinking(id, false)
-                // Flush this chat to storage NOW (debounce may never fire for a
-                // background chat), then drop its in-memory transcript when it
-                // is not visible — storage holds the truth for reopening.
+                // Flush to storage NOW (debounce may never fire for a
+                // background chat); drop the in-memory transcript when hidden.
                 try { persistChatNow(id) } catch (_: Exception) { }
                 if (id != _activeChatId.value) {
                     runtimes.remove(id)

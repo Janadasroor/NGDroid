@@ -57,7 +57,6 @@ fun BoxScope.NetsOverlay(
 ) {
     if (dataVectors.isEmpty()) return
     if (isLandscape) {
-        // LANDSCAPE MODE: Single Collapsible Button "Nets"
         Column(
             modifier = modifier
                 .align(Alignment.TopStart)
@@ -136,7 +135,6 @@ fun BoxScope.NetsOverlay(
             }
         }
     } else {
-        // PORTRAIT MODE: Floating Net Labels Bar directly over Canvas Top
         Row(
             modifier = modifier
                 .align(Alignment.TopStart)

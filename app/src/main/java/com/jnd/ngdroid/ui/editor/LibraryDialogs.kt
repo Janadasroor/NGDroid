@@ -176,7 +176,6 @@ fun ExamplesPickerDialog(
                     .fillMaxSize()
                     .padding(20.dp)
             ) {
-                // Header Title & Icon
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -206,7 +205,6 @@ fun ExamplesPickerDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                // Search Bar
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -226,7 +224,6 @@ fun ExamplesPickerDialog(
 
                 Spacer(Modifier.height(10.dp))
 
-                // Category Filter Chips
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -244,7 +241,6 @@ fun ExamplesPickerDialog(
 
                 Spacer(Modifier.height(12.dp))
 
-                // List of Example Cards
                 if (filteredPresets.isEmpty()) {
                     Box(
                         modifier = Modifier

@@ -145,11 +145,9 @@ object HttpClients {
             }
             val source = resp.body?.source()
                 ?: throw IllegalStateException("Empty stream for $url")
-            // Stall watchdog: the base client has readTimeout(0) so streams
-            // stay open, but a gateway that accepts then goes quiet forever
-            // used to hang the run at "Contacting…" until app restart
-            // (blocking read is not coroutine-cancellable). Any 120 s gap
-            // without a byte now fails loudly instead.
+            // Stall watchdog: readTimeout(0) keeps streams open, but a
+            // gateway that goes quiet forever would hang the run (blocking
+            // reads aren't cancellable) — any 120 s gap fails loudly.
             source.timeout().timeout(STREAM_STALL_SECONDS, TimeUnit.SECONDS)
             // Frame-level parsing only; providers interpret event/data.
             val buf = StringBuilder()

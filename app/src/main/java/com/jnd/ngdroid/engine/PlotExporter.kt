@@ -222,7 +222,6 @@ object PlotExporter {
             canvas.drawPath(path, tracePaint)
         }
 
-        // Axis labels: min/max of scale + y range.
         val labelPaint = Paint().apply {
             color = if (dark) android.graphics.Color.LTGRAY else android.graphics.Color.DKGRAY
             textSize = 30f
@@ -263,7 +262,6 @@ object PlotExporter {
             )
             canvas.drawCircle(x + 12f, y - 10f, 12f, paint.apply { style = Paint.Style.FILL })
             paint.color = android.graphics.Color.WHITE
-            // On light exports use dark text.
             canvas.drawText(vec.name, x + 32f, y, paint)
             x += 32f + paint.measureText(vec.name) + 50f
             if (x > PNG_WIDTH - 200) return
@@ -291,8 +289,6 @@ object PlotExporter {
     private fun fmtShort(v: Double): String {
         return formatEng(v, "").trim()
     }
-
-    // ---------- file helpers (same pattern as CsvExporter) ----------
 
     private fun exportsDir(context: Context, sub: String): File {
         return File(context.cacheDir, sub).apply { mkdirs() }
@@ -368,8 +364,6 @@ object PlotExporter {
         }
     }
 
-    // ---------- PDF lab report ----------
-
     fun buildReportPdf(
         context: Context,
         bundle: ReportBundle,
@@ -381,7 +375,6 @@ object PlotExporter {
         if (plot.scaleVector?.values.isNullOrEmpty()) return null
         val doc = PdfDocument()
         try {
-            // Page 1: header + plot image + measurements.
             val pageW = 595 // A4 @72dpi
             val pageH = 842
             var pageNum = 1
@@ -424,7 +417,6 @@ object PlotExporter {
                 40f, y, subPaint
             ); y += 22f
 
-            // Plot image.
             val bmp = renderPlotBitmap(plot, activeVectors, settings, viewState)
             if (bmp != null) {
                 val imgW = (pageW - 80).toFloat()
@@ -434,7 +426,6 @@ object PlotExporter {
                 y += imgH + 18f
             }
 
-            // Measurements table.
             canvas.drawText("Measurements", 40f, y, headPaint); y += 18f
             val rows = plot.dataVectors.filter { activeVectors.contains(it.name) }.map { vec ->
                 WaveformAnalyzer.calculateMeasurements(plot.scaleVector, vec)
@@ -466,7 +457,6 @@ object PlotExporter {
             }
             y += 10f
 
-            // Netlist block (paginate as needed).
             canvas.drawText("Netlist", 40f, y, headPaint); y += 18f
             val bgPaint = Paint().apply { color = 0xFFF2F0F7.toInt() }
             bundle.netlistText.lines().forEach { line ->

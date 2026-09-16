@@ -1,11 +1,10 @@
 package com.jnd.ngdroid.ui.assistant
 
 /**
- * Pure thinking-row helpers. No Android imports — JVM-testable.
+ * Pure thinking-row helpers (no Android imports — JVM-testable).
  *
  * Tool progress is stored as [ChatRoleUi.SYSTEM] messages inline in the
- * transcript. The chat body hides them; they surface inside thinking
- * expanders instead — live while a turn runs, and per-answer afterwards.
+ * transcript; the chat body hides them and thinking expanders surface them.
  */
 
 /** SYSTEM steps of the still-running turn: everything after the last USER message. */

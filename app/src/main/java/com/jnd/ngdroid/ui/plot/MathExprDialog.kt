@@ -35,9 +35,8 @@ import androidx.compose.ui.unit.sp
 import com.jnd.ngdroid.engine.VectorSeries
 
 /**
- * Math dialog: expression field + net dropdown (inserts at cursor) +
- * function chips + live validation. Apply returns the expression string;
- * evaluation stays lazy in PlotScreen (nothing stored but the string).
+ * Math dialog: expression field + net dropdown + function chips + live
+ * validation. Evaluation stays lazy in PlotScreen.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -83,7 +82,6 @@ fun MathExprDialog(
                         fontFamily = FontFamily.Monospace
                     )
                 )
-                // Net picker: inserts the trace name at the cursor.
                 ExposedDropdownMenuBox(
                     expanded = dropExpanded,
                     onExpandedChange = { if (vectors.isNotEmpty()) dropExpanded = it }
@@ -120,7 +118,6 @@ fun MathExprDialog(
                         }
                     }
                 }
-                // Function chips: insert fn(…) with cursor inside.
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)

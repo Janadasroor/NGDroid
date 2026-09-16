@@ -5,10 +5,9 @@ import android.util.Log
 import java.io.File
 
 /**
- * Helper for XSPICE mixed-signal and event-driven digital code model support in NGDroid.
- *
- * XSPICE extends SPICE3/ngspice with code models (A-devices) for event-driven digital gates,
- * analog code models (gain, summer, limit, hysteresis, etc.), and ADC/DAC interface bridges.
+ * XSPICE mixed-signal / event-driven digital code-model support
+ * (A-devices, gain/summer/limiter, ADC/DAC bridges). Pure scan helpers;
+ * dynamic .cm loading happens after [NativeNgSpice.nativeInit].
  */
 object XSpiceManager {
     private const val TAG = "XSpiceManager"

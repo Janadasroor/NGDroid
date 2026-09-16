@@ -240,15 +240,14 @@ fun AssistantScreen(
     var showAttachSheet by remember { mutableStateOf(false) }
     var cameraOutFile by remember { mutableStateOf<File?>(null) }
     var cameraOutUri by remember { mutableStateOf<Uri?>(null) }
-    // CAMERA is dangerous on every API level: request first, shoot after grant.
-    // (Launcher callback can't call launchCamera directly — local funs aren't
-    // in scope above their declaration — so the grant bumps a counter that a
-    // later effect consumes.)
+    // CAMERA is dangerous on every API level: request first, shoot after
+    // grant (the grant bumps a counter consumed by a later effect, since
+    // local funs aren't in scope above their declaration). A later denial
+    // with no rationale dialog means "Don't ask again" — route to app
+    // Settings instead of firing the launcher into the void.
     var pendingCameraShot by remember { mutableStateOf(false) }
     var cameraGrantBump by remember { mutableIntStateOf(0) }
-    // True once we've asked: a later denial with no rationale dialog means
-    // "Don't ask again" — firing the launcher then is a silent no-op, so we
-    // route to app Settings instead. Survives rotation.
+    // Survives rotation.
     var cameraAskedBefore by rememberSaveable { mutableStateOf(false) }
     var showCameraSettingsDialog by remember { mutableStateOf(false) }
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -274,8 +273,6 @@ fun AssistantScreen(
             runCatching { file?.delete() }
         } else {
             // Backed out or capture failed: drop the temp file quietly.
-            // Backing out is normal (no nag); the camera app surfaces its
-            // own errors when capture itself breaks.
             runCatching { file?.delete() }
         }
     }
@@ -1210,11 +1207,8 @@ private fun UserAttachmentList(
 }
 
 /**
- * Professional model picker fed by ALL fetched provider catalogs.
- * Pill button (active provider icon + name + FREE badge) opens a menu with its own
- * search engine, ALL/FREE filter chips, and provider-grouped free-first rows —
- * every provider with a saved key (plus public Zen) in one list. Picking a row
- * from another provider switches to it. No hardcoded entries.
+ * Model picker fed by ALL fetched provider catalogs: search, ALL/FREE
+ * filter chips, provider-grouped free-first rows. No hardcoded entries.
  */
 @Composable
 private fun ModelDropdownRow(
@@ -1498,10 +1492,8 @@ private fun ModelDropdownRow(
 }
 
 /**
- * Thinking row: tappable card with a live spinner (while running) or grouped
- * search summary (`Found 20 pages • Read 4 pages`) with tappable stacked site
- * icons. Tapping an icon opens that site's page dialog; expanding shows the
- * grouped summary plus the per-tool activity timeline.
+ * Thinking row: live spinner while running, grouped search summary after.
+ * Tapping a site icon opens that page; expanding shows the activity timeline.
  */
 @Composable
 private fun ThinkingRow(
@@ -1713,9 +1705,8 @@ private fun CodeBlockCard(
 }
 
 /**
- * Professional models browser: live catalog only, with a real search engine
- * (multi-token + family match), ALL/FREE/KEYED tiers, free-first sections,
- * provider header card, and badge rows. No hardcoded models.
+ * Models browser: live catalog only, real search engine, ALL/FREE/KEYED
+ * tiers, free-first sections. No hardcoded models.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

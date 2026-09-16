@@ -14,7 +14,7 @@ import com.jnd.ngdroid.data.ButtonStyle
 
 /**
  * Responsive flow: one UI, metrics chosen by screen-width bucket so phones
- * bucket so phones big and small render at a visually consistent size.
+ * big and small render at a visually consistent size.
  *
  * - SMALL (<340dp): tiny phones — tightest padding, smallest type.
  * - COMPACT (340–404dp): most phones — slightly tightened.

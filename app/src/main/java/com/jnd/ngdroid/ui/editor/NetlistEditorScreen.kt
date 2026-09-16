@@ -358,7 +358,6 @@ fun NetlistEditorScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header: title row (title + save + more) + actions row (library + presets)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -384,7 +383,6 @@ fun NetlistEditorScreen(
                     )
                 }
 
-                // Undo button
                 IconButton(
                     onClick = { viewModel.undo() },
                     enabled = canUndo,
@@ -397,7 +395,6 @@ fun NetlistEditorScreen(
                     )
                 }
 
-                // Redo button
                 IconButton(
                     onClick = { viewModel.redo() },
                     enabled = canRedo,
@@ -410,7 +407,6 @@ fun NetlistEditorScreen(
                     )
                 }
 
-                // Save button (overwrite if active, else save-as)
                 IconButton(
                     onClick = {
                         if (activeCircuit != null) {
@@ -433,7 +429,6 @@ fun NetlistEditorScreen(
                     modifier = Modifier.size(48.dp)
                 )
 
-                // More menu: open file, recents, wrap, paste, history, new, save-as
                 Box {
                     IconButton(
                         onClick = { showMoreMenu = true },
@@ -550,13 +545,11 @@ fun NetlistEditorScreen(
                 }
             }
 
-            // Actions row: library (expands) + presets (fixed)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Library Dropdown
                 Box(modifier = Modifier.weight(1f)) {
                         OutlinedButton(
                             onClick = { showLibraryMenu = true },
@@ -663,7 +656,6 @@ fun NetlistEditorScreen(
                         }
                     }
 
-                    // Presets / Examples Button
                     OutlinedButton(
                         onClick = { showPresetMenu = true },
                         shape = LocalButtonShape.current
@@ -678,7 +670,6 @@ fun NetlistEditorScreen(
                     }
             }
 
-            // Quick Insertion Directive Chips
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -697,7 +688,6 @@ fun NetlistEditorScreen(
                 }
             }
 
-            // Error Alert Banner
             if (state.hasError && !state.errorMessage.isNullOrEmpty()) {
                 Surface(
                     color = MaterialTheme.colorScheme.errorContainer,
@@ -722,7 +712,6 @@ fun NetlistEditorScreen(
                 }
             }
 
-            // Status Banner & Progress Indicator
             // Elapsed ticker for the live run (120 s engine timeout).
             var runElapsedSec by remember { mutableLongStateOf(0L) }
             androidx.compose.runtime.LaunchedEffect(state.isSimulating) {

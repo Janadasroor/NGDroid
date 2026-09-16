@@ -17,16 +17,15 @@ import okhttp3.Request
 /**
  * OpenCode Zen provider, cloud-direct (`https://opencode.ai/zen/v1`).
  *
- * Live gateway behavior (verified with curl, see /tmp/fix.md):
- * - Free-tier prompt requests are gated on the presence of
- *   `x-opencode-session: <any value>` (MissingSessionID without it).
+ * Gateway behavior (probed live, encoded here so callers stay simple):
+ * - Free-tier prompts require an `x-opencode-session: <any value>` header
+ *   (MissingSessionID without it).
  * - No user key needed for free models: `Bearer public` routes the same as
  *   keyless (FreeUsageLimitError rather than AuthError).
  * - Real API key required for non-free models (else AuthError "Missing API key").
- * - `muse-spark-*-free` only serve `/responses` (HTTP 500 on /chat/completions,
- *   works fine on /responses) — so this provider routes per model family:
- *   spark → `/responses` (native tool_calls parsed back), everything else →
- *   `/chat/completions`.
+ * - `muse-spark-*-free` only serve `/responses` (HTTP 500 on /chat/completions),
+ *   so this provider routes per model family: spark → `/responses`,
+ *   everything else → `/chat/completions`.
  */
 class ZenProvider(
     private val http: HttpPost,
@@ -209,9 +208,8 @@ class ZenProvider(
     }
 
     /**
-     * Pure, testable `/responses` request builder.
-     * Verified live: `input` as role/content list + `tools` with
-     * `{type:function,name,description,parameters}` works (status completed).
+     * Pure, testable `/responses` request builder: `input` as role/content
+     * list + flat `{type:function,…}` tools.
      */
     fun buildResponsesJson(
         model: String,
@@ -352,10 +350,8 @@ class ZenProvider(
     }
 
     /**
-     * OpenAI `chat/completions` tool shape: `{"type":"function","function":{...}}`.
-     * The gateway rejects the flat `/responses` shape here with
-     * HTTP 400 `Upstream request failed: [400] Provider returned error`
-     * (verified live on nemotron-3-ultra-free).
+     * OpenAI `chat/completions` tool shape. The gateway rejects the flat
+     * `/responses` shape here with HTTP 400 `Upstream request failed`.
      */
     private fun buildChatFunctionTool(t: LlmTool): JsonObject {
         return buildJsonObject {
@@ -372,10 +368,7 @@ class ZenProvider(
         }
     }
 
-    /**
-     * OpenAI `/responses` tool shape: flat `{type:function,name,description,parameters}`.
-     * Verified live on muse-spark-1.3-contributor-free (HTTP 200).
-     */
+    /** OpenAI `/responses` tool shape: flat `{type:function,…}`. */
     private fun buildResponsesFunctionTool(t: LlmTool): JsonObject {
         return buildJsonObject {
             put("type", JsonPrimitive("function"))
@@ -469,25 +462,20 @@ class ZenProvider(
         /** Cap vision payloads: matches MAX_ATTACHMENTS_PER_MESSAGE. */
         const val MAX_VISION_IMAGES = 4
 
-        /** Cloud Zen API base — the only endpoint used. No localhost/shim. */
+        /** Cloud Zen API base. */
         const val ZEN_BASE = "https://opencode.ai/zen/v1"
 
         /** Free-tier gateway checks presence, not value. */
         const val DEFAULT_SESSION_ID = HostDefaults.DEFAULT_SESSION_ID
 
-        /**
-         * Free tier without a user key: the gateway accepts `public` as bearer.
-         * Verified live: `Bearer public` and no-auth route identically on
-         * /chat/completions (FreeUsageLimitError rather than AuthError).
-         */
+        /** Free tier without a user key: the gateway accepts `public` as bearer. */
         const val PUBLIC_BEARER = "public"
 
         /**
-         * Client fingerprint the Zen gateway rate-limits on. Anonymous calls
-         * with a stock HTTP UA (okhttp/…) get FreeUsageLimitError even when
-         * quota exists; the same call as `opencode/…` succeeds (verified live
-         * with mimo-v2.5-free). Mirrors the CLI identity from opencode's
-         * session/llm/request.ts (`User-Agent: opencode/<version>`).
+         * Client fingerprint the Zen gateway rate-limits on: anonymous calls
+         * with a stock HTTP UA get FreeUsageLimitError even when quota
+         * exists; the same call as `opencode/…` succeeds. Mirrors the CLI
+         * identity (`User-Agent: opencode/<version>`).
          */
         const val OPENCODE_USER_AGENT = "opencode/1.0"
 

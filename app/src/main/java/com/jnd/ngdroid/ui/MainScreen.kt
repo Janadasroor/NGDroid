@@ -116,8 +116,7 @@ fun MainScreen(
     // Inner handlers (drawer, dialogs) consume first — this is the fallback.
     val context = LocalContext.current
     var lastBackPress by remember { mutableLongStateOf(0L) }
-    // Tab switch keeps every screen composed (scroll/focus/dialog state
-    // preserved) and drops IME focus so a hidden field keeps no keyboard.
+    // Tab switch keeps every screen composed and drops IME focus.
     val focusManager = LocalFocusManager.current
     val selectTab: (AppTab) -> Unit = { tab ->
         focusManager.clearFocus(force = true)
@@ -166,9 +165,7 @@ fun MainScreen(
                 dialogShapeFor(settings.dialogCornerRadiusDp)
             }
         ) {
-        // Chat tab owns its own header (drawer + model picker); the global bar would double it.
-        // Phone landscape is fully immersive (no top bar either).
-        // Plot owns its header too (title + export/cursor/math actions).
+        // Chat and Plot own their headers; phone landscape is fully immersive.
         val hideGlobalBar = isFullscreenPlot || selectedTab == AppTab.ASSISTANT ||
             selectedTab == AppTab.PLOT || isPhoneLandscape
         Scaffold(
@@ -222,7 +219,7 @@ fun MainScreen(
             }
         ) { innerPadding ->
             // Keyed so rotation (bar <-> rail) keeps screen state, not resets it.
-            // Every tab stays composed (hidden ones measure 0x0), so scroll
+            // Every tab stays composed (hidden ones measure 0x0): scroll
             // positions and UI state survive tab switches while running.
             val tabContent: @Composable () -> Unit = {
                 AppTab.entries.forEach { tab ->

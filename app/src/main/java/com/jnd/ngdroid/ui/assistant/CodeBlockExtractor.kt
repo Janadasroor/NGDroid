@@ -20,12 +20,12 @@ fun extractCodeBlocks(markdown: String): List<String> {
             if (first.isNotEmpty() && !first.contains(' ') && !first.contains('\n') &&
                 (first.all { it.isLetterOrDigit() || it == '-' || it == '_' || it == '+' || it == '.' })
             ) {
-                // Heuristic: single-token first line that is not SPICE content.
-                // SPICE lines look like "R1 in out 1k" (contain spaces) — keep those.
+                // Heuristic: a single-token first line is a language tag, not
+                // SPICE ("R1 in out 1k" lines contain spaces) — drop it.
                 body = body.substring(nl + 1)
             }
         } else {
-            // Single-line fence content: keep as-is if it looks like code, else keep too.
+            // Single-line fence content passes through untouched.
         }
         out.add(body.trim('\n'))
         idx = end + 3

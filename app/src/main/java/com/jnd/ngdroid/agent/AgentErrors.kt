@@ -45,9 +45,8 @@ object AgentErrors {
                 "$name is temporarily unavailable on the free tier. " +
                     "Open the model menu above and pick another free model."
             "rate limit" in low || "freeusagelimit" in low || "429" in low -> {
-                // Keyless free models share one anonymous quota lane, which can
-                // be exhausted for a single model while others (and the CLI's
-                // authenticated lane) still work. Say which, and offer the key.
+                // Keyless free models share one anonymous lane that can be
+                // exhausted per model — name it and offer the key alternative.
                 val id = model.trim().lowercase()
                 val anonymous = id.endsWith("-free") || id.endsWith(":free")
                 if (anonymous) {

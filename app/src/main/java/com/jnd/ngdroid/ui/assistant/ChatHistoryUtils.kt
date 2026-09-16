@@ -16,10 +16,9 @@ fun buildTitle(firstUserText: String, fallback: String = "New chat"): String {
 }
 
 /**
- * Normalizes the composer draft on every keystroke: whitespace-only input
- * (spaces, newlines) collapses to empty so the input bar falls back to its
- * single-line height and the placeholder returns. Real drafts pass through
- * untouched, preserving in-progress multi-line text.
+ * Normalizes the composer draft per keystroke: whitespace-only input
+ * collapses to empty (placeholder returns, single-line height); real
+ * drafts pass through untouched.
  */
 fun normalizeChatInput(raw: String): String =
     if (raw.isBlank()) "" else raw

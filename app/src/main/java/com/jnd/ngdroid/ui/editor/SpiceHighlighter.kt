@@ -43,7 +43,6 @@ fun highlightNetlist(
                     lineStart, lineEnd
                 )
             } else {
-                // Inline comment starting with ';' — comment out rest of line.
                 val semiIdx = line.indexOf(';')
                 val codeEnd = if (semiIdx >= 0) lineStart + semiIdx else lineEnd
                 if (semiIdx >= 0) {
@@ -53,7 +52,6 @@ fun highlightNetlist(
                     )
                 }
 
-                // Directives like .tran .ac .model .subckt
                 DirectiveRegex.findAll(line).forEach { match ->
                     val s = lineStart + match.range.first
                     val e = lineStart + match.range.last + 1
@@ -68,7 +66,6 @@ fun highlightNetlist(
                     }
                 }
 
-                // Leading component token (e.g. R1, C1, V1, X1)
                 val compMatch = ComponentLineRegex.find(line)
                 if (compMatch != null) {
                     val token = compMatch.groupValues[1]
@@ -85,7 +82,6 @@ fun highlightNetlist(
                     }
                 }
 
-                // Numbers with units
                 NumberRegex.findAll(line).forEach { match ->
                     val s = lineStart + match.range.first
                     val e = lineStart + match.range.last + 1

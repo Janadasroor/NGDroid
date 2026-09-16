@@ -122,8 +122,8 @@ class WebSearchTool(
                 try {
                     formatResults(braveSearch(query, count, key), query)
                 } catch (e: Exception) {
-                    // Bad/over-quota key: degrade to free DDG and say so, instead
-                    // of failing the whole turn on a key problem.
+                    // Bad/over-quota key degrades to free DDG instead of
+                    // failing the whole turn.
                     val note = fallbackNote(e)
                     if (note != null) {
                         note + formatResults(duckSearch(query, count), query)

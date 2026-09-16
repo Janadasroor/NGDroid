@@ -468,10 +468,8 @@ class SimulationViewModel(
     fun clearLogs() = repository.clearLogs()
     fun restoreLogs(logs: List<String>) = repository.restoreLogs(logs)
 
-    // ---- Math channel (fx): the expression string only, evaluated lazily
-    // in PlotScreen. Survives tab switches (VM-scoped); re-resolves per plot.
-    // Toggling the trace chip only flips visibility — the equation stays,
-    // so re-checking restores it without retyping.
+    // ---- Math channel (fx): expression only (VM-scoped, survives tabs);
+    // PlotScreen evaluates lazily per plot; toggling visibility keeps it.
     var mathExpr: String? by mutableStateOf(null)
     var mathVisible: Boolean by mutableStateOf(true)
 
