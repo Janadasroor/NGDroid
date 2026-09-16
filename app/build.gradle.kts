@@ -11,8 +11,9 @@ android {
 
     defaultConfig {
         applicationId = "com.jnd.ngdroid"
-        // minSdk 24 kept; verified floor is API 26 (Android 8.0).
-        minSdk = 24
+        // Verified floor is API 26 (Android 8.0); 24-25 were never tested
+        // (incl. 32-bit libngspice coverage), so 26 is the release floor.
+        minSdk = 26
         targetSdk = 37
         versionCode = 1
         versionName = "1.0"

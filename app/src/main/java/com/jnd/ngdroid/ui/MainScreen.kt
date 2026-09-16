@@ -1,9 +1,14 @@
 package com.jnd.ngdroid.ui
 
+import android.app.Activity
 import android.content.res.Configuration
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.Icons
@@ -18,6 +23,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,6 +85,24 @@ fun MainScreen(
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isFullscreenPlot = selectedTab == AppTab.PLOT && isLandscape
 
+    // Back: any tab returns to EDITOR first; on EDITOR double-press exits.
+    // Inner handlers (drawer, dialogs) consume first — this is the fallback.
+    val context = LocalContext.current
+    var lastBackPress by remember { mutableStateOf(0L) }
+    BackHandler(enabled = true) {
+        if (selectedTab != AppTab.EDITOR) {
+            selectedTab = AppTab.EDITOR
+        } else {
+            val now = System.currentTimeMillis()
+            if (now - lastBackPress < 2000) {
+                (context as? Activity)?.finish()
+            } else {
+                lastBackPress = now
+                Toast.makeText(context, "Press again to exit", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     val isDark = when (settings.themeMode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.DARK -> true
@@ -83,6 +110,18 @@ fun MainScreen(
     }
 
     val primaryColor = Color(settings.accentColorTheme.hexValue)
+
+    val tabs: List<Pair<AppTab, ImageVector>> = listOf(
+        AppTab.EDITOR to Icons.Default.Code,
+        AppTab.CONSOLE to Icons.Default.Terminal,
+        AppTab.PLOT to Icons.AutoMirrored.Filled.ShowChart,
+        AppTab.DATA to Icons.Default.TableChart,
+        AppTab.ASSISTANT to Icons.Default.SmartToy,
+        AppTab.SETTINGS to Icons.Default.Settings
+    )
+    // Landscape hides the bottom bar: the rail takes over so no tab is stranded.
+    // Fullscreen plot keeps maximum area (no rail either).
+    val showRail = isLandscape && !isFullscreenPlot
 
     NGDroidTheme(darkTheme = isDark, accent = primaryColor) {
         CompositionLocalProvider(
@@ -108,19 +147,13 @@ fun MainScreen(
                 }
             },
             bottomBar = {
-                if (!isFullscreenPlot) {
+                // Landscape: hide the bottom bar for more content room
+                // (back button still returns to EDITOR).
+                if (!isLandscape) {
                     // Six destinations must fit 320dp+ screens: single-line
                     // labels at the bucket size, truncated instead of wrapping.
                     val navLabel = MaterialTheme.typography.labelMedium.copy(
                         fontSize = LocalAppSizes.current.navLabelSize
-                    )
-                    val tabs = listOf(
-                        AppTab.EDITOR to Icons.Default.Code,
-                        AppTab.CONSOLE to Icons.Default.Terminal,
-                        AppTab.PLOT to Icons.AutoMirrored.Filled.ShowChart,
-                        AppTab.DATA to Icons.Default.TableChart,
-                        AppTab.ASSISTANT to Icons.Default.SmartToy,
-                        AppTab.SETTINGS to Icons.Default.Settings
                     )
                     // Accent edge above the bar + themed container (no default look).
                     Column {
@@ -151,7 +184,8 @@ fun MainScreen(
                 }
             }
         ) { innerPadding ->
-            Surface(modifier = Modifier.padding(if (isFullscreenPlot) PaddingValues() else innerPadding)) {
+            // Keyed so rotation (bar <-> rail) keeps screen state, not resets it.
+            val tabContent: @Composable () -> Unit = {
                 when (selectedTab) {
                     AppTab.EDITOR -> NetlistEditorScreen(
                         viewModel = simulationViewModel,
@@ -192,6 +226,31 @@ fun MainScreen(
                         onSettingsChanged = { transform -> settingsViewModel.updateSettings(transform) },
                         assistantViewModel = assistantViewModel
                     )
+                }
+            }
+            Surface(modifier = Modifier.padding(if (isFullscreenPlot) PaddingValues() else innerPadding)) {
+                if (showRail) {
+                    Row {
+                        key("rail") {
+                            NavigationRail(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer
+                            ) {
+                                tabs.forEach { (tab, icon) ->
+                                    NavigationRailItem(
+                                        selected = selectedTab == tab,
+                                        onClick = { selectedTab = tab },
+                                        icon = { Icon(icon, contentDescription = tab.title) },
+                                        label = { Text(tab.title) }
+                                    )
+                                }
+                            }
+                        }
+                        key("content") {
+                            Box(modifier = Modifier.weight(1f)) { tabContent() }
+                        }
+                    }
+                } else {
+                    key("content") { tabContent() }
                 }
             }
         }
