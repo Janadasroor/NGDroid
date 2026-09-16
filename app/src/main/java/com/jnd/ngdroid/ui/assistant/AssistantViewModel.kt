@@ -90,9 +90,16 @@ interface SimBridge {
 
 class AssistantViewModel(
     application: Application,
-    private val store: AgentDataStore = AgentDataStore(application),
-    private val chatStore: ChatHistoryStore = ChatHistoryStore(application)
+    private val store: AgentDataStore,
+    private val chatStore: ChatHistoryStore
 ) : AndroidViewModel(application), AssistantSettingsFacade {
+    // Single-arg ctor for the framework factory (which only knows (Application));
+    // tests can use the primary ctor to inject fake stores.
+    constructor(application: Application) : this(
+        application,
+        AgentDataStore(application),
+        ChatHistoryStore(application)
+    )
 
     private val _messages = MutableStateFlow<List<ChatMsg>>(emptyList())
     val messages: StateFlow<List<ChatMsg>> = _messages.asStateFlow()

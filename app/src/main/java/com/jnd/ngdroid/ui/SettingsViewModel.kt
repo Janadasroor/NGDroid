@@ -13,8 +13,11 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(
     application: Application,
-    private val dataStore: SettingsDataStore = SettingsDataStore(application)
+    private val dataStore: SettingsDataStore
 ) : AndroidViewModel(application) {
+    // Single-arg ctor for the framework factory (which only knows (Application));
+    // tests can use the primary ctor to inject a fake store.
+    constructor(application: Application) : this(application, SettingsDataStore(application))
     // Single source of truth: in-memory repo mirrors DataStore.
     // UI reads from this repo; all writes go through updateSettings() below.
     val settingsRepository = SettingsRepository()
