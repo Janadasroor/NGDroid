@@ -47,8 +47,6 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.jnd.ngdroid.data.AgentProvider
-import com.jnd.ngdroid.ui.assistant.AssistantMarkdownWithMath
-import com.jnd.ngdroid.ui.assistant.AssistantViewModel
 import kotlinx.coroutines.delay
 
 /**
@@ -58,10 +56,11 @@ import kotlinx.coroutines.delay
  */
 @Composable
 fun AiAssistantSettingsCard(
-    assistantViewModel: AssistantViewModel,
+    assistant: AssistantSettingsFacade,
+    renderPreview: SkillPreviewRenderer,
     modifier: Modifier = Modifier
 ) {
-    val agentSettings by assistantViewModel.settings.collectAsState()
+    val agentSettings by assistant.settings.collectAsState()
     val provider = agentSettings.provider
     val savedKey = when (provider) {
         AgentProvider.GEMINI -> agentSettings.geminiApiKey
@@ -85,7 +84,7 @@ fun AiAssistantSettingsCard(
         }
         saveState = SaveState.Editing
         delay(800)
-        assistantViewModel.updateKey(provider, keyInput)
+        assistant.updateKey(provider, keyInput)
         saveState = SaveState.Saved
     }
 
@@ -121,7 +120,7 @@ fun AiAssistantSettingsCard(
                 AgentProvider.entries.forEach { entry ->
                     FilterChip(
                         selected = provider == entry,
-                        onClick = { assistantViewModel.updateProvider(entry) },
+                        onClick = { assistant.updateProvider(entry) },
                         label = { Text(entry.displayName) }
                     )
                 }
@@ -195,7 +194,7 @@ fun AiAssistantSettingsCard(
                 }
                 searchSaveState = SaveState.Editing
                 delay(800)
-                assistantViewModel.updateSearchKey(searchInput)
+                assistant.updateSearchKey(searchInput)
                 searchSaveState = SaveState.Saved
             }
             OutlinedTextField(
@@ -241,7 +240,7 @@ fun AiAssistantSettingsCard(
                 LaunchedEffect(session) {
                     if (!sessionDirty) return@LaunchedEffect
                     delay(800)
-                    assistantViewModel.updateSessionId(session)
+                    assistant.updateSessionId(session)
                     sessionDirty = false
                 }
                 OutlinedTextField(
@@ -257,10 +256,10 @@ fun AiAssistantSettingsCard(
             HorizontalDivider()
             AgentSkillsSection(
                 agentSettings = agentSettings,
-                onToggle = { id, on -> assistantViewModel.updateSkill(id, on) },
+                onToggle = { id, on -> assistant.updateSkill(id, on) },
                 onReset = {
                     com.jnd.ngdroid.data.BUILTIN_SKILL_IDS.forEach {
-                        assistantViewModel.updateSkill(it, true)
+                        assistant.updateSkill(it, true)
                     }
                 }
             )
@@ -268,22 +267,23 @@ fun AiAssistantSettingsCard(
             HorizontalDivider()
             CustomSkillsSection(
                 skills = agentSettings.customSkills,
+                renderPreview = renderPreview,
                 onAdd = { name, description, instructions ->
-                    assistantViewModel.addCustomSkill(name, description, instructions) != null
+                    assistant.addCustomSkill(name, description, instructions) != null
                 },
                 onUpdate = { id, name, description, instructions ->
-                    assistantViewModel.updateCustomSkill(id, name, description, instructions)
+                    assistant.updateCustomSkill(id, name, description, instructions)
                 },
-                onDelete = { assistantViewModel.deleteCustomSkill(it) },
-                onToggle = { id, on -> assistantViewModel.setCustomSkillEnabled(id, on) }
+                onDelete = { assistant.deleteCustomSkill(it) },
+                onToggle = { id, on -> assistant.setCustomSkillEnabled(id, on) }
             )
 
             HorizontalDivider()
             AgentAdvancedSection(
                 agentSettings = agentSettings,
-                onMaxIter = { assistantViewModel.updateMaxIterations(it) },
-                onStub = { assistantViewModel.updateStubRetries(it) },
-                onAutoPick = { assistantViewModel.updateAutoPick(it) }
+                onMaxIter = { assistant.updateMaxIterations(it) },
+                onStub = { assistant.updateStubRetries(it) },
+                onAutoPick = { assistant.updateAutoPick(it) }
             )
 
             Row(
@@ -363,6 +363,7 @@ private fun AgentSkillsSection(
 @Composable
 private fun CustomSkillsSection(
     skills: List<com.jnd.ngdroid.data.CustomSkill>,
+    renderPreview: SkillPreviewRenderer,
     onAdd: (String, String, String) -> Boolean,
     onUpdate: (String, String, String, String) -> Boolean,
     onDelete: (String) -> Unit,
@@ -426,6 +427,7 @@ private fun CustomSkillsSection(
     if (showDialog) {
         CustomSkillDialog(
             initial = editing,
+            renderPreview = renderPreview,
             onDismiss = { showDialog = false },
             onSave = { name, description, instructions ->
                 val ok = if (editing == null) onAdd(name, description, instructions)
@@ -440,6 +442,7 @@ private fun CustomSkillsSection(
 @Composable
 private fun CustomSkillDialog(
     initial: com.jnd.ngdroid.data.CustomSkill?,
+    renderPreview: SkillPreviewRenderer,
     onDismiss: () -> Unit,
     onSave: (String, String, String) -> Boolean
 ) {
@@ -504,7 +507,7 @@ private fun CustomSkillDialog(
                             .heightIn(min = 200.dp, max = 420.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
-                        AssistantMarkdownWithMath(previewMarkdown)
+                        renderPreview(previewMarkdown)
                     }
                 }
                 if (error != null) {

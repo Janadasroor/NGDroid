@@ -11,9 +11,10 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-class SettingsViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val dataStore = SettingsDataStore(application)
+class SettingsViewModel(
+    application: Application,
+    private val dataStore: SettingsDataStore = SettingsDataStore(application)
+) : AndroidViewModel(application) {
     // Single source of truth: in-memory repo mirrors DataStore.
     // UI reads from this repo; all writes go through updateSettings() below.
     val settingsRepository = SettingsRepository()

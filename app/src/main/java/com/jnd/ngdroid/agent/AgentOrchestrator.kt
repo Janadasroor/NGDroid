@@ -3,11 +3,21 @@ package com.jnd.ngdroid.agent
 data class AgentConfig(
     val maxIterations: Int = 8,
     /** Extra turns granted when the model ends with a promise but no payload. */
-    val maxStubRetries: Int = 1
+    val maxStubRetries: Int = 1,
+    /** App-specific content policy (tool ids, stall phrases, nudge texts). */
+    val contentPolicy: AgentContentPolicy = AgentContentPolicy()
+)
+
+/** App-specific content policy: which tools promise deliverables, which phrases read as stalls. */
+data class AgentContentPolicy(
+    val contentToolNames: Set<String> = DEFAULT_CONTENT_TOOLS,
+    val promisePhrases: List<String> = DEFAULT_PROMISE_PHRASES,
+    val stubRetryNudge: String = STUB_RETRY_NUDGE,
+    val stalledTrailer: String = STALLED_TRAILER
 )
 
 /** Tools whose use promises deliverables (netlist, links, images, files) in the reply. */
-private val contentToolNames = setOf(
+private val DEFAULT_CONTENT_TOOLS = setOf(
     "web_search", "fetch_url", "curl_fetch", "image_search",
     "netlist_template", "validate_netlist", "apply_netlist", "run_simulation",
     "render_plot",
@@ -17,7 +27,7 @@ private val contentToolNames = setOf(
 /** Cap vision images injected per tool result (token saver). */
 const val MAX_TOOL_IMAGES = 1
 
-private val promisePhrases = listOf(
+private val DEFAULT_PROMISE_PHRASES = listOf(
     "coming up", "coming right up", "i'll pull", "i'll fetch", "i'll get",
     "i'll put together", "let me ", "one moment", "one sec", "moment please",
     "building your", "putting together", "putting that", "working on it",
@@ -32,12 +42,12 @@ private val promisePhrases = listOf(
 )
 
 /** True when the text carries something usable: code, image, link, or saved file. Pure. */
-fun finalHasPayload(text: String): Boolean {
+fun finalHasPayload(text: String, policy: AgentContentPolicy = AgentContentPolicy()): Boolean {
     if ("```" in text) return true
     if (Regex("""!\[[^\]]*]\([^)]+\)""").containsMatchIn(text)) return true
     if (Regex("""https?://""").containsMatchIn(text)) return true
     val lower = text.lowercase()
-    if ("downloads/ngdroid" in lower || "assistant_files" in lower) return true
+    if (HostDefaults.containsSavedFileMention(lower)) return true
     if (Regex("""saved .+\.(pdf|png|jpe?g|gif|webp|svg|ico|zip|csv|txt|md|json)""").containsMatchIn(lower)) return true
     return false
 }
@@ -46,11 +56,11 @@ fun finalHasPayload(text: String): Boolean {
  * True when the final reply reads like a promise ("coming up", "I'll pull…",
  * trailing "…:") yet contains no netlist, link, or image. Pure; JVM-testable.
  */
-fun isPromiseWithoutPayload(text: String): Boolean {
-    if (finalHasPayload(text)) return false
+fun isPromiseWithoutPayload(text: String, policy: AgentContentPolicy = AgentContentPolicy()): Boolean {
+    if (finalHasPayload(text, policy)) return false
     val lower = text.trim().lowercase()
     if (lower.isEmpty()) return false
-    if (promisePhrases.any { it in lower }) return true
+    if (policy.promisePhrases.any { it in lower }) return true
     return lower.endsWith(":")
 }
 
@@ -60,8 +70,13 @@ fun isPromiseWithoutPayload(text: String): Boolean {
  * (code block, links) is still useful, so only bare promises are replaced
  * by the friendly error. Pure; JVM-testable.
  */
-fun finalAfterError(lastText: String, friendly: String, contentToolUsed: Boolean): String =
-    if (lastText.isBlank() || (contentToolUsed && isPromiseWithoutPayload(lastText))) friendly
+fun finalAfterError(
+    lastText: String,
+    friendly: String,
+    contentToolUsed: Boolean,
+    policy: AgentContentPolicy = AgentContentPolicy()
+): String =
+    if (lastText.isBlank() || (contentToolUsed && isPromiseWithoutPayload(lastText, policy))) friendly
     else lastText
 
 /**
@@ -100,7 +115,7 @@ const val STUB_RETRY_NUDGE: String =
     "Your last reply promises results but contains no netlist code block, " +
         "link, image, or saved file. Deliver them now in this reply: include the validated " +
         "netlist in a fenced code block and any links, " +
-        "![description](image-url) images, or Downloads/NGDroid file locations. " +
+            "![description](image-url) images, or ${HostDefaults.DOWNLOAD_DIR_LABEL} file locations. " +
         "Do not end with another promise."
 
 /**
@@ -187,7 +202,7 @@ class AgentOrchestrator(
                     } catch (e2: Exception) {
                         onEvent(AgentEvent.Error("Provider error: ${e2.message}"))
                         val friendly = errorFormatter(e2.message ?: e2.javaClass.simpleName)
-                        return finalAfterError(lastText, friendly, contentToolUsed)
+                        return finalAfterError(lastText, friendly, contentToolUsed, config.contentPolicy)
                     }
                 } else {
                     onEvent(AgentEvent.Error("Provider error: ${e.message}"))
@@ -203,18 +218,18 @@ class AgentOrchestrator(
                 // no netlist, link, or image — grant one nudge turn instead of
                 // showing "coming up" with nothing behind it.
                 if (stubRetries < config.maxStubRetries &&
-                    contentToolUsed && isPromiseWithoutPayload(text)
+                    contentToolUsed && isPromiseWithoutPayload(text, config.contentPolicy)
                 ) {
                     stubRetries++
                     conversation.add(ChatMessage(ChatRole.ASSISTANT, resp.text))
-                    conversation.add(ChatMessage(ChatRole.USER, STUB_RETRY_NUDGE))
+                    conversation.add(ChatMessage(ChatRole.USER, config.contentPolicy.stubRetryNudge))
                     continue
                 }
                 // Stalled run: the model tried to act (any tool call) but the
                 // final is a bare promise — say so and point at Regenerate
                 // instead of leaving a dead-end "coming up" message.
-                if (toolAttempted && isPromiseWithoutPayload(text)) {
-                    val out = "$text\n\n_${STALLED_TRAILER}_"
+                if (toolAttempted && isPromiseWithoutPayload(text, config.contentPolicy)) {
+                    val out = "$text\n\n_${config.contentPolicy.stalledTrailer}_"
                     if (resp.text.isNotBlank()) onEvent(AgentEvent.Message(out))
                     return out
                 }
@@ -233,7 +248,7 @@ class AgentOrchestrator(
 
             for (tc in resp.toolCalls) {
                 onEvent(AgentEvent.ToolCallEvent(tc.name, tc.argumentsJson))
-                if (tc.name in contentToolNames) contentToolUsed = true
+                if (tc.name in config.contentPolicy.contentToolNames) contentToolUsed = true
                 val tool = tools.get(tc.name)
                 val result = if (tool == null) {
                     ToolResult("ERROR: unknown tool '${tc.name}'")
@@ -280,7 +295,7 @@ class AgentOrchestrator(
             text.ifBlank { "Stopped after ${config.maxIterations} iterations without a final answer." }
         } catch (e: Exception) {
             onEvent(AgentEvent.Error("Final-answer error: ${e.message}"))
-            finalAfterError(lastText, errorFormatter(e.message ?: e.javaClass.simpleName), contentToolUsed)
+            finalAfterError(lastText, errorFormatter(e.message ?: e.javaClass.simpleName), contentToolUsed, config.contentPolicy)
         }
     }
 }

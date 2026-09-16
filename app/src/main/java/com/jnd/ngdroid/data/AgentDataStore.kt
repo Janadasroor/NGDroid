@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.jnd.ngdroid.agent.HostDefaults
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -56,18 +57,22 @@ class AgentDataStore(private val context: Context) {
             selectedModel = prefs[Keys.SELECTED_MODEL]
                 ?: prefs[stringPreferencesKey("model_override")]
                 ?: "",
-            sessionId = prefs[Keys.SESSION_ID] ?: "spiceagent-01",
-            skillValidateNetlist = prefs[Keys.SKILL_VALIDATE] ?: true,
-            skillNetlistTemplate = prefs[Keys.SKILL_TEMPLATE] ?: true,
-            skillApplyNetlist = prefs[Keys.SKILL_APPLY] ?: true,
-            skillRunSimulation = prefs[Keys.SKILL_RUN] ?: true,
-            skillWebSearch = prefs[Keys.SKILL_WEB] ?: true,
-            skillFetchUrl = prefs[Keys.SKILL_FETCH] ?: true,
-            skillCurlFetch = prefs[Keys.SKILL_CURL] ?: true,
-            skillImageSearch = prefs[Keys.SKILL_IMAGE] ?: true,
-            skillDownloadFile = prefs[Keys.SKILL_DOWNLOAD] ?: true,
-            skillReadFile = prefs[Keys.SKILL_READ] ?: true,
-            skillRenderPlot = prefs[Keys.SKILL_RENDER_PLOT] ?: true,
+            sessionId = prefs[Keys.SESSION_ID] ?: HostDefaults.DEFAULT_SESSION_ID,
+            // Skill map: one entry per known tool id; missing keys default to on.
+            // Storage stays per-key booleans, so existing installs migrate silently.
+            skills = mapOf(
+                "validate_netlist" to (prefs[Keys.SKILL_VALIDATE] ?: true),
+                "netlist_template" to (prefs[Keys.SKILL_TEMPLATE] ?: true),
+                "apply_netlist" to (prefs[Keys.SKILL_APPLY] ?: true),
+                "run_simulation" to (prefs[Keys.SKILL_RUN] ?: true),
+                "web_search" to (prefs[Keys.SKILL_WEB] ?: true),
+                "fetch_url" to (prefs[Keys.SKILL_FETCH] ?: true),
+                "curl_fetch" to (prefs[Keys.SKILL_CURL] ?: true),
+                "image_search" to (prefs[Keys.SKILL_IMAGE] ?: true),
+                "download_file" to (prefs[Keys.SKILL_DOWNLOAD] ?: true),
+                "read_file" to (prefs[Keys.SKILL_READ] ?: true),
+                "render_plot" to (prefs[Keys.SKILL_RENDER_PLOT] ?: true)
+            ),
             maxIterations = prefs[Keys.MAX_ITER] ?: 12,
             stubRetries = prefs[Keys.STUB_RETRIES] ?: 1,
             autoPickFreeModel = prefs[Keys.AUTO_PICK] ?: true,
@@ -162,17 +167,17 @@ class AgentDataStore(private val context: Context) {
             it[Keys.SEARCH_KEY] = settings.searchApiKey
             it[Keys.SELECTED_MODEL] = settings.selectedModel
             it[Keys.SESSION_ID] = settings.sessionId
-            it[Keys.SKILL_VALIDATE] = settings.skillValidateNetlist
-            it[Keys.SKILL_TEMPLATE] = settings.skillNetlistTemplate
-            it[Keys.SKILL_APPLY] = settings.skillApplyNetlist
-            it[Keys.SKILL_RUN] = settings.skillRunSimulation
-            it[Keys.SKILL_WEB] = settings.skillWebSearch
-            it[Keys.SKILL_FETCH] = settings.skillFetchUrl
-            it[Keys.SKILL_CURL] = settings.skillCurlFetch
-            it[Keys.SKILL_IMAGE] = settings.skillImageSearch
-            it[Keys.SKILL_DOWNLOAD] = settings.skillDownloadFile
-            it[Keys.SKILL_READ] = settings.skillReadFile
-            it[Keys.SKILL_RENDER_PLOT] = settings.skillRenderPlot
+            it[Keys.SKILL_VALIDATE] = settings.isSkillEnabled("validate_netlist")
+            it[Keys.SKILL_TEMPLATE] = settings.isSkillEnabled("netlist_template")
+            it[Keys.SKILL_APPLY] = settings.isSkillEnabled("apply_netlist")
+            it[Keys.SKILL_RUN] = settings.isSkillEnabled("run_simulation")
+            it[Keys.SKILL_WEB] = settings.isSkillEnabled("web_search")
+            it[Keys.SKILL_FETCH] = settings.isSkillEnabled("fetch_url")
+            it[Keys.SKILL_CURL] = settings.isSkillEnabled("curl_fetch")
+            it[Keys.SKILL_IMAGE] = settings.isSkillEnabled("image_search")
+            it[Keys.SKILL_DOWNLOAD] = settings.isSkillEnabled("download_file")
+            it[Keys.SKILL_READ] = settings.isSkillEnabled("read_file")
+            it[Keys.SKILL_RENDER_PLOT] = settings.isSkillEnabled("render_plot")
             it[Keys.MAX_ITER] = settings.maxIterations.coerceIn(4, 20)
             it[Keys.STUB_RETRIES] = settings.stubRetries.coerceIn(0, 3)
             it[Keys.AUTO_PICK] = settings.autoPickFreeModel

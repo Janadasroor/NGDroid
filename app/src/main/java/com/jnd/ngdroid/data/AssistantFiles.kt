@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.jnd.ngdroid.agent.AssistantFileStore
+import com.jnd.ngdroid.agent.HostDefaults
 import com.jnd.ngdroid.agent.SavedFile
 import com.jnd.ngdroid.agent.guessMimeFromName
 import com.jnd.ngdroid.agent.sanitizeFileName
@@ -18,7 +19,7 @@ import java.io.File
  */
 class AndroidAssistantFileStore(private val appContext: Context) : AssistantFileStore {
 
-    private fun dir(): File = File(appContext.filesDir, "assistant_files").apply { mkdirs() }
+    private fun dir(): File = File(appContext.filesDir, HostDefaults.FILE_STORE_DIR).apply { mkdirs() }
 
     override fun save(fileName: String, bytes: ByteArray, mimeType: String): SavedFile {
         val safe = sanitizeFileName(fileName, mimeType)
@@ -26,13 +27,13 @@ class AndroidAssistantFileStore(private val appContext: Context) : AssistantFile
         val internal = File(dir(), safe)
         internal.writeBytes(bytes)
         publishToDownloads(safe, bytes, mime.ifBlank { "application/octet-stream" })
-        return SavedFile(safe, bytes.size.toLong(), mime, "Downloads/NGDroid/$safe", internal.absolutePath)
+        return SavedFile(safe, bytes.size.toLong(), mime, HostDefaults.displayPath(safe), internal.absolutePath)
     }
 
     override fun list(): List<SavedFile> {
         val files = dir().listFiles()?.sortedByDescending { it.lastModified() }.orEmpty()
         return files.filter { it.isFile }.map { f ->
-            SavedFile(f.name, f.length(), guessMimeFromName(f.name), "Downloads/NGDroid/${f.name}", f.absolutePath)
+            SavedFile(f.name, f.length(), guessMimeFromName(f.name), HostDefaults.displayPath(f.name), f.absolutePath)
         }
     }
 
@@ -46,10 +47,10 @@ class AndroidAssistantFileStore(private val appContext: Context) : AssistantFile
         if (q.isEmpty()) return null
         val files = dir().listFiles()?.filter { it.isFile }.orEmpty()
         files.firstOrNull { it.name.equals(q, ignoreCase = true) }?.let { f ->
-            return SavedFile(f.name, f.length(), guessMimeFromName(f.name), "Downloads/NGDroid/${f.name}", f.absolutePath)
+            return SavedFile(f.name, f.length(), guessMimeFromName(f.name), HostDefaults.displayPath(f.name), f.absolutePath)
         }
         files.firstOrNull { it.name.lowercase().endsWith(q.lowercase()) }?.let { f ->
-            return SavedFile(f.name, f.length(), guessMimeFromName(f.name), "Downloads/NGDroid/${f.name}", f.absolutePath)
+            return SavedFile(f.name, f.length(), guessMimeFromName(f.name), HostDefaults.displayPath(f.name), f.absolutePath)
         }
         return null
     }
@@ -60,7 +61,7 @@ class AndroidAssistantFileStore(private val appContext: Context) : AssistantFile
                 val values = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                     put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/NGDroid")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, HostDefaults.DOWNLOAD_RELATIVE_PATH)
                 }
                 val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
                 val uri = appContext.contentResolver.insert(collection, values) ?: return
@@ -76,7 +77,7 @@ class AndroidAssistantFileStore(private val appContext: Context) : AssistantFile
                 if (!granted) return
                 @Suppress("DEPRECATION")
                 val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val outDir = File(downloads, "NGDroid").apply { mkdirs() }
+                val outDir = File(downloads, HostDefaults.DOWNLOAD_SUBDIR).apply { mkdirs() }
                 File(outDir, name).writeBytes(bytes)
             }
         }

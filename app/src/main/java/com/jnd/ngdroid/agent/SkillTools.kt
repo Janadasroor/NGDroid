@@ -1,7 +1,5 @@
 package com.jnd.ngdroid.agent
 
-import com.jnd.ngdroid.data.CustomSkill
-import com.jnd.ngdroid.data.skillSlug
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -15,7 +13,7 @@ private val skillArgJson = Json { ignoreUnknownKeys = true }
  * the model calls this when a description matches the task.
  */
 class ReadSkillTool(
-    private val skillsProvider: () -> List<CustomSkill>
+    private val skillsProvider: () -> List<SkillEntry>
 ) : AgentTool {
     override val name: String = "read_skill"
     override val description: String =

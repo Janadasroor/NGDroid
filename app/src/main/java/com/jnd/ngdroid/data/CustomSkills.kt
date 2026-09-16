@@ -1,5 +1,6 @@
 package com.jnd.ngdroid.data
 
+import com.jnd.ngdroid.agent.SkillEntry
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -12,12 +13,12 @@ import java.util.UUID
 
 /** User-created skill: SKILL.md-style (name + description for discovery, body for activation). */
 data class CustomSkill(
-    val id: String = UUID.randomUUID().toString(),
-    val name: String,
+    override val id: String = UUID.randomUUID().toString(),
+    override val name: String,
     val description: String = "",
-    val instructions: String,
-    val enabled: Boolean = true
-) {
+    override val instructions: String,
+    override val enabled: Boolean = true
+) : SkillEntry {
     /** Filesystem-safe skill dir name: kebab-case, max 64 chars (SKILL.md standard). */
     val slug: String get() = skillSlug(name)
 }
@@ -47,13 +48,7 @@ val BUILTIN_SKILLS: List<BuiltinSkill> = listOf(
 val BUILTIN_SKILL_IDS: Set<String> = BUILTIN_SKILLS.map { it.id }.toSet()
 
 /** kebab-case dir name: lowercase letters/numbers/hyphens, max 64. Pure. */
-fun skillSlug(name: String): String {
-    val slug = name.trim().lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
-        .take(64).trim('-')
-    return slug.ifBlank { "skill" }
-}
+fun skillSlug(name: String): String = com.jnd.ngdroid.agent.skillSlug(name)
 
 /** Error message when invalid, null when the skill is usable. Pure. */
 fun validateCustomSkill(name: String, description: String, instructions: String): String? {

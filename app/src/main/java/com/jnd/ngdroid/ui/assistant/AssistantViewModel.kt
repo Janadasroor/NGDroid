@@ -44,6 +44,7 @@ import com.jnd.ngdroid.data.loadVisionImages
 import com.jnd.ngdroid.agent.LlmImage
 import com.jnd.ngdroid.data.ChatSession
 import com.jnd.ngdroid.data.NetworkMonitor
+import com.jnd.ngdroid.ui.settings.AssistantSettingsFacade
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -87,9 +88,11 @@ interface SimBridge {
         com.jnd.ngdroid.agent.ToolResult("ERROR: plot render unavailable")
 }
 
-class AssistantViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val store = AgentDataStore(application)
+class AssistantViewModel(
+    application: Application,
+    private val store: AgentDataStore = AgentDataStore(application),
+    private val chatStore: ChatHistoryStore = ChatHistoryStore(application)
+) : AndroidViewModel(application), AssistantSettingsFacade {
 
     private val _messages = MutableStateFlow<List<ChatMsg>>(emptyList())
     val messages: StateFlow<List<ChatMsg>> = _messages.asStateFlow()
@@ -101,7 +104,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     val statusLine: StateFlow<String?> = _statusLine.asStateFlow()
 
     private val _settings = MutableStateFlow(AgentSettings())
-    val settings: StateFlow<AgentSettings> = _settings.asStateFlow()
+    override val settings: StateFlow<AgentSettings> = _settings.asStateFlow()
 
     /** Live catalog from the provider's listModels(). Never hardcoded in app code. */
     private val _models = MutableStateFlow<List<String>>(emptyList())
@@ -150,7 +153,6 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     // ---- Chat history ----
-    private val chatStore = ChatHistoryStore(application)
     private var cachedSessions: List<ChatSession> = emptyList()
 
     private val _sessions = MutableStateFlow<List<ChatSession>>(emptyList())
@@ -493,7 +495,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Switch provider; restores its cached catalog + last pick (no wipe). */
-    fun updateProvider(provider: AgentProvider) {
+    override fun updateProvider(provider: AgentProvider) {
         val old = _settings.value.provider
         if (old == provider) return
         val currentPick = _settings.value.selectedModel.trim()
@@ -516,7 +518,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Save the API key for one provider (Settings screen). */
-    fun updateKey(provider: AgentProvider, key: String) {
+    override fun updateKey(provider: AgentProvider, key: String) {
         _settings.value = when (provider) {
             AgentProvider.GEMINI -> _settings.value.copy(geminiApiKey = key)
             AgentProvider.OPENAI -> _settings.value.copy(openaiApiKey = key)
@@ -553,14 +555,14 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Save the optional web-search (Brave) key. Blank = free DuckDuckGo backend. */
-    fun updateSearchKey(key: String) {
+    override fun updateSearchKey(key: String) {
         _settings.value = _settings.value.copy(searchApiKey = key)
         viewModelScope.launch {
             try { store.setSearchKey(key) } catch (_: Exception) { }
         }
     }
 
-    fun updateSessionId(sessionId: String) {
+    override fun updateSessionId(sessionId: String) {
         _settings.value = _settings.value.copy(sessionId = sessionId)
         viewModelScope.launch {
             try { store.setSessionId(sessionId) } catch (_: Exception) { }
@@ -568,7 +570,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Built-in skill toggle (maps to one agent tool). */
-    fun updateSkill(id: String, enabled: Boolean) {
+    override fun updateSkill(id: String, enabled: Boolean) {
         _settings.value = _settings.value.withSkill(id, enabled)
         // withSkill returns same instance for unknown ids; still persist known ones.
         viewModelScope.launch {
@@ -576,7 +578,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun updateMaxIterations(v: Int) {
+    override fun updateMaxIterations(v: Int) {
         val coerced = v.coerceIn(4, 20)
         _settings.value = _settings.value.copy(maxIterations = coerced)
         viewModelScope.launch {
@@ -584,7 +586,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun updateStubRetries(v: Int) {
+    override fun updateStubRetries(v: Int) {
         val coerced = v.coerceIn(0, 3)
         _settings.value = _settings.value.copy(stubRetries = coerced)
         viewModelScope.launch {
@@ -592,7 +594,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun updateAutoPick(v: Boolean) {
+    override fun updateAutoPick(v: Boolean) {
         _settings.value = _settings.value.copy(autoPickFreeModel = v)
         viewModelScope.launch {
             try { store.setAutoPick(v) } catch (_: Exception) { }
@@ -600,7 +602,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     /** Create a user skill; returns null when validation fails (caller shows the error). */
-    fun addCustomSkill(name: String, description: String, instructions: String): String? {
+    override fun addCustomSkill(name: String, description: String, instructions: String): String? {
         if (com.jnd.ngdroid.data.validateCustomSkill(name, description, instructions) != null) return null
         if (_settings.value.customSkills.size >= 50) return null
         val skill = newCustomSkill(name, description, instructions)
@@ -615,7 +617,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
     fun addCustomSkill(name: String, instructions: String): String? =
         addCustomSkill(name, instructions.trim().take(200), instructions)
 
-    fun updateCustomSkill(id: String, name: String, description: String, instructions: String): Boolean {
+    override fun updateCustomSkill(id: String, name: String, description: String, instructions: String): Boolean {
         if (com.jnd.ngdroid.data.validateCustomSkill(name, description, instructions) != null) return false
         val list = _settings.value.customSkills.map {
             if (it.id == id) it.copy(
@@ -631,7 +633,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         return true
     }
 
-    fun deleteCustomSkill(id: String) {
+    override fun deleteCustomSkill(id: String) {
         val list = _settings.value.customSkills.filterNot { it.id == id }
         _settings.value = _settings.value.copy(customSkills = list)
         viewModelScope.launch {
@@ -639,7 +641,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun setCustomSkillEnabled(id: String, enabled: Boolean) {
+    override fun setCustomSkillEnabled(id: String, enabled: Boolean) {
         val list = _settings.value.customSkills.map {
             if (it.id == id) it.copy(enabled = enabled) else it
         }
@@ -986,6 +988,63 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
         editAndResend(lastUser.id, lastUser.text, simBridge)
     }
 
+    /** Assembled per-turn agent pieces: tool registry + orchestrator + prompt. */
+    private class AgentStack(val agent: AgentOrchestrator, val systemPrompt: String)
+
+    /** Builds the tool registry and orchestrator from skill toggles (one place, not inline). */
+    private fun buildAgentStack(
+        s: AgentSettings,
+        simBridge: SimBridge,
+        provider: com.jnd.ngdroid.agent.LlmProvider
+    ): AgentStack {
+        val bridge = object : SpiceAppBridge {
+            override fun applyNetlist(text: String): String {
+                simBridge.applyNetlist(text)
+                return "Applied ${text.lines().size} lines to editor"
+            }
+            override fun currentNetlist(): String = try {
+                simBridge.currentNetlist()
+            } catch (e: Exception) { "ERROR: ${e.message}" }
+            override fun runSimulation(): String = try {
+                simBridge.runSimulation()
+                "Simulation started"
+            } catch (e: Exception) { "ERROR: ${e.message}" }
+        }
+        val fileStore = AndroidAssistantFileStore(getApplication())
+        val customSnapshot = s.enabledCustomSkills()
+        val registry = MapToolRegistry().apply {
+            if (s.isSkillEnabled("validate_netlist")) register(ValidateNetlistTool())
+            if (s.isSkillEnabled("netlist_template")) register(GenerateNetlistTemplateTool())
+            if (s.isSkillEnabled("apply_netlist")) register(ApplyNetlistTool(bridge))
+            if (s.isSkillEnabled("run_simulation")) register(
+                RunSimulationTool { netlist, timeoutMs -> simBridge.runAndReport(netlist, timeoutMs) }
+            )
+            if (s.isSkillEnabled("render_plot")) register(
+                RenderPlotTool { requested -> simBridge.renderPlot(requested) }
+            )
+            if (s.isSkillEnabled("web_search")) register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
+            if (s.isSkillEnabled("image_search")) register(ImageSearchTool(searchKeyProvider = { s.searchApiKey }))
+            if (s.isSkillEnabled("fetch_url")) register(FetchUrlTool())
+            if (s.isSkillEnabled("curl_fetch")) register(CurlFetchTool())
+            if (s.isSkillEnabled("download_file")) register(DownloadFileTool(HttpClients.okHttpBytes(), fileStore))
+            if (s.isSkillEnabled("read_file")) register(ReadFileTool(fileStore))
+            if (customSnapshot.isNotEmpty()) register(ReadSkillTool { customSnapshot })
+        }
+        val agent = AgentOrchestrator(
+            AgentConfig(
+                maxIterations = s.coercedMaxIterations(),
+                maxStubRetries = s.coercedStubRetries()
+            ),
+            provider,
+            registry
+        )
+        val systemPrompt = com.jnd.ngdroid.data.skillCatalogPrompt(
+            com.jnd.ngdroid.agent.SPICE_SYSTEM,
+            customSnapshot
+        )
+        return AgentStack(agent, systemPrompt)
+    }
+
     private fun runAgentTurn(
         id: String,
         clean: String,
@@ -1026,51 +1085,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
             var liveId: String? = null
             try {
                 val provider = buildProvider(s, key, model)
-                val bridge = object : SpiceAppBridge {
-                    override fun applyNetlist(text: String): String {
-                        simBridge.applyNetlist(text)
-                        return "Applied ${text.lines().size} lines to editor"
-                    }
-                    override fun currentNetlist(): String = try {
-                        simBridge.currentNetlist()
-                    } catch (e: Exception) { "ERROR: ${e.message}" }
-                    override fun runSimulation(): String = try {
-                        simBridge.runSimulation()
-                        "Simulation started"
-                    } catch (e: Exception) { "ERROR: ${e.message}" }
-                }
-                val fileStore = AndroidAssistantFileStore(getApplication())
-                val customSnapshot = s.enabledCustomSkills()
-                val registry = MapToolRegistry().apply {
-                    if (s.isSkillEnabled("validate_netlist")) register(ValidateNetlistTool())
-                    if (s.isSkillEnabled("netlist_template")) register(GenerateNetlistTemplateTool())
-                    if (s.isSkillEnabled("apply_netlist")) register(ApplyNetlistTool(bridge))
-                    if (s.isSkillEnabled("run_simulation")) register(
-                        RunSimulationTool { netlist, timeoutMs -> simBridge.runAndReport(netlist, timeoutMs) }
-                    )
-                    if (s.isSkillEnabled("render_plot")) register(
-                        RenderPlotTool { requested -> simBridge.renderPlot(requested) }
-                    )
-                    if (s.isSkillEnabled("web_search")) register(WebSearchTool(searchKeyProvider = { s.searchApiKey }))
-                    if (s.isSkillEnabled("image_search")) register(ImageSearchTool(searchKeyProvider = { s.searchApiKey }))
-                    if (s.isSkillEnabled("fetch_url")) register(FetchUrlTool())
-                    if (s.isSkillEnabled("curl_fetch")) register(CurlFetchTool())
-                    if (s.isSkillEnabled("download_file")) register(DownloadFileTool(HttpClients.okHttpBytes(), fileStore))
-                    if (s.isSkillEnabled("read_file")) register(ReadFileTool(fileStore))
-                    if (customSnapshot.isNotEmpty()) register(ReadSkillTool { customSnapshot })
-                }
-                val agent = AgentOrchestrator(
-                    AgentConfig(
-                        maxIterations = s.coercedMaxIterations(),
-                        maxStubRetries = s.coercedStubRetries()
-                    ),
-                    provider,
-                    registry
-                )
-                val systemPrompt = com.jnd.ngdroid.data.skillCatalogPrompt(
-                    com.jnd.ngdroid.agent.SPICE_SYSTEM,
-                    customSnapshot
-                )
+                val stack = buildAgentStack(s, simBridge, provider)
                 // Raw provider failures become short friendly sentences (no JSON/URLs).
                 // Pending tool args let observations embed their source URL/counts
                 // (fetch reads, search totals) for the thinking summary.
@@ -1078,7 +1093,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                 // Live streaming bubble: created on the first text delta, then
                 // refreshed (UI mirrored at ~8Hz so markdown keeps up).
                 var lastPushMs = 0L
-                val answer = agent.run(
+                val answer = stack.agent.run(
                     enriched,
                     rt.history.toList(),
                     { event ->
@@ -1116,7 +1131,7 @@ class AssistantViewModel(application: Application) : AndroidViewModel(applicatio
                     }
                     },
                     errorFormatter = { AgentErrors.format(it, model) },
-                    systemPrompt = systemPrompt,
+                    systemPrompt = stack.systemPrompt,
                     userImages = userImages
                 )
                 rt.history.add(ChatMessage(ChatRole.USER, enriched))

@@ -236,7 +236,8 @@ fun MainScreen(
                     AppTab.SETTINGS -> SettingsScreen(
                         settingsRepository = settingsRepository,
                         onSettingsChanged = { transform -> settingsViewModel.updateSettings(transform) },
-                        assistantViewModel = assistantViewModel
+                        assistant = assistantViewModel,
+                        renderPreview = { com.jnd.ngdroid.ui.assistant.AssistantMarkdownWithMath(it) }
                     )
                 }
             }

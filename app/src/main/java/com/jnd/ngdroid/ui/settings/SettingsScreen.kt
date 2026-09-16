@@ -55,8 +55,8 @@ import java.util.Locale
 fun SettingsScreen(
     settingsRepository: SettingsRepository,
     onSettingsChanged: (transform: (AppSettings) -> AppSettings) -> Unit = {},
-    assistantViewModel: com.jnd.ngdroid.ui.assistant.AssistantViewModel =
-        androidx.lifecycle.viewmodel.compose.viewModel()
+    assistant: AssistantSettingsFacade,
+    renderPreview: SkillPreviewRenderer
 ) {
     val settings by settingsRepository.settings.collectAsState()
 
@@ -397,6 +397,6 @@ fun SettingsScreen(
             }
         }
 
-        AiAssistantSettingsCard(assistantViewModel = assistantViewModel)
+        AiAssistantSettingsCard(assistant = assistant, renderPreview = renderPreview)
     }
 }

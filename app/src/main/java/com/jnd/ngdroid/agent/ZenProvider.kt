@@ -474,7 +474,7 @@ class ZenProvider(
         const val ZEN_BASE = "https://opencode.ai/zen/v1"
 
         /** Free-tier gateway checks presence, not value. */
-        const val DEFAULT_SESSION_ID = "spiceagent-01"
+        const val DEFAULT_SESSION_ID = HostDefaults.DEFAULT_SESSION_ID
 
         /**
          * Free tier without a user key: the gateway accepts `public` as bearer.

@@ -56,10 +56,10 @@ class InMemoryFileStore : AssistantFileStore {
     override fun save(fileName: String, bytes: ByteArray, mimeType: String): SavedFile {
         val safe = sanitizeFileName(fileName)
         files[safe] = bytes.copyOf() to mimeType
-        return SavedFile(safe, bytes.size.toLong(), mimeType, "Downloads/NGDroid/$safe")
+        return SavedFile(safe, bytes.size.toLong(), mimeType, HostDefaults.displayPath(safe))
     }
     override fun list(): List<SavedFile> = files.map { (name, v) ->
-        SavedFile(name, v.first.size.toLong(), v.second, "Downloads/NGDroid/$name")
+        SavedFile(name, v.first.size.toLong(), v.second, HostDefaults.displayPath(name))
     }
     override fun readBytes(fileName: String): ByteArray? {
         findFile(fileName)?.let { return files[it.fileName]?.first?.copyOf() }
@@ -70,12 +70,12 @@ class InMemoryFileStore : AssistantFileStore {
         if (q.isEmpty()) return null
         files.keys.firstOrNull { it.equals(q, ignoreCase = true) }?.let { name ->
             val v = files[name]!!
-            return SavedFile(name, v.first.size.toLong(), v.second, "Downloads/NGDroid/$name")
+            return SavedFile(name, v.first.size.toLong(), v.second, HostDefaults.displayPath(name))
         }
         // Suffix match so "NGDroid/x.pdf" or partial names resolve.
         files.keys.firstOrNull { it.lowercase().endsWith(q.lowercase()) }?.let { name ->
             val v = files[name]!!
-            return SavedFile(name, v.first.size.toLong(), v.second, "Downloads/NGDroid/$name")
+            return SavedFile(name, v.first.size.toLong(), v.second, HostDefaults.displayPath(name))
         }
         return null
     }
@@ -295,7 +295,7 @@ class DownloadFileTool(
     override val name: String = "download_file"
     override val description: String =
         "Download a file (PDF datasheet, image, CSV, ZIP) into device storage " +
-            "(Downloads/NGDroid) so the user can open it. " +
+            "(${HostDefaults.DOWNLOAD_DIR_LABEL}) so the user can open it. " +
             "Input JSON: {\"url\": \"https://...\", \"fileName\": \"tl494.pdf\"}. " +
             "Returns the saved location + size; use read_file to inspect docs/images. " +
             "http(s) only, max 20 MB."

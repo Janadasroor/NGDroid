@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.jnd.ngdroid.agent.HostDefaults
 import java.io.File
 
 data class ChatFileLink(val fileName: String, val url: String)
@@ -97,7 +98,7 @@ fun extractFileLinks(text: String, maxFiles: Int = 4): List<ChatFileLink> {
  */
 fun extractLocalFileNames(text: String, maxFiles: Int = 4): List<String> {
     if (maxFiles <= 0) return emptyList()
-    val re = Regex("""Downloads/NGDroid/([A-Za-z0-9._()+ \-]{1,80})""")
+    val re = Regex(Regex.escape(HostDefaults.DOWNLOAD_DIR_LABEL) + """/([A-Za-z0-9._()+ \-]{1,80})""")
     val out = mutableListOf<String>()
     for (m in re.findAll(text)) {
         val name = m.groupValues[1].trim().trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '\'', '"')
@@ -123,7 +124,7 @@ private fun enqueueDownload(context: Context, url: String, fileName: String) {
             )
             .setDestinationInExternalPublicDir(
                 Environment.DIRECTORY_DOWNLOADS,
-                "NGDroid/$fileName"
+                "${HostDefaults.DOWNLOAD_SUBDIR}/$fileName"
             )
             .addRequestHeader(
                 "User-Agent",
@@ -132,14 +133,14 @@ private fun enqueueDownload(context: Context, url: String, fileName: String) {
             )
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         manager.enqueue(request)
-        Toast.makeText(context, "Downloading to Downloads/NGDroid…", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "Downloading to ${HostDefaults.DOWNLOAD_DIR_LABEL}…", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
         Toast.makeText(context, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
     }
 }
 
 private fun localFile(context: Context, name: String): File =
-    File(File(context.filesDir, "assistant_files"), name)
+    File(File(context.filesDir, HostDefaults.FILE_STORE_DIR), name)
 
 private fun openLocalFile(context: Context, name: String) {
     try {
@@ -256,7 +257,7 @@ fun LocalFileCard(fileName: String) {
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    "Downloads/NGDroid/$fileName",
+                    HostDefaults.displayPath(fileName),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
