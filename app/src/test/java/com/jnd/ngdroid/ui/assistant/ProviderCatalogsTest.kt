@@ -88,6 +88,25 @@ class ProviderCatalogsTest {
     }
 
     @Test
+    fun providerNameMatchSelectsWholeCatalog() {
+        // "zen" matches no model id, but selects the Zen provider catalog.
+        val out = searchAllCatalogs(sampleCatalogs(), "zen", ModelTierFilter.ALL)
+        assertEquals(2, out.size)
+        assertTrue(out.all { it.provider == AgentProvider.OPENCODE_ZEN })
+        // Tier still applies on provider-name match.
+        val freeOnly = searchAllCatalogs(sampleCatalogs(), "zen", ModelTierFilter.FREE)
+        assertEquals(listOf("mimo-v2.5-free"), freeOnly.map { it.id })
+    }
+
+    @Test
+    fun tierFilterIdsSplitsWithoutRanking() {
+        val ids = listOf("b-free", "a", "b-free", " ")
+        assertEquals(listOf("b-free", "a"), tierFilterIds(ids, ModelTierFilter.ALL, setOf("b-free")))
+        assertEquals(listOf("b-free"), tierFilterIds(ids, ModelTierFilter.FREE, setOf("b-free")))
+        assertEquals(listOf("a"), tierFilterIds(ids, ModelTierFilter.KEYED, setOf("b-free")))
+    }
+
+    @Test
     fun apiKeyForReadsEachProvider() {
         val s = com.jnd.ngdroid.data.AgentSettings(geminiApiKey = "g-key", zenApiKey = "z-key")
         assertEquals("g-key", s.apiKeyFor(AgentProvider.GEMINI))

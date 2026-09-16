@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -31,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -1635,6 +1637,7 @@ private fun ModelsDialog(
     val error by assistantViewModel.modelsError.collectAsState()
     var query by remember { mutableStateOf("") }
     var tier by remember { mutableStateOf(ModelTierFilter.ALL) }
+    var providerFilter by remember { mutableStateOf<AgentProvider?>(null) }
 
     LaunchedEffect(Unit) { assistantViewModel.refreshAllModels() }
 
@@ -1643,9 +1646,15 @@ private fun ModelsDialog(
     }
     val totalModels = remember(catalogs) { catalogs.sumOf { it.models.size } }
     val totalFree = remember(catalogs) { catalogs.sumOf { it.freeModels.size } }
+    val shownEntries = remember(entries, providerFilter) {
+        if (providerFilter == null) entries else entries.filter { it.provider == providerFilter }
+    }
+    val providerCounts = remember(entries) {
+        entries.groupBy { it.provider }.mapValues { it.value.size }
+    }
     // Provider-ordered groups (current provider first, as published).
-    val groups = remember(catalogs, entries) {
-        val byProvider = entries.groupBy { it.provider }
+    val groups = remember(catalogs, shownEntries) {
+        val byProvider = shownEntries.groupBy { it.provider }
         catalogs.mapNotNull { c -> byProvider[c.provider]?.let { c.provider to it } }
     }
     val selectedId = settings.selectedModel.trim()
@@ -1728,6 +1737,26 @@ private fun ModelsDialog(
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    FilterChip(
+                        selected = providerFilter == null,
+                        onClick = { providerFilter = null },
+                        label = { Text("All providers") }
+                    )
+                    catalogs.forEach { c ->
+                        FilterChip(
+                            selected = providerFilter == c.provider,
+                            onClick = {
+                                providerFilter = if (providerFilter == c.provider) null else c.provider
+                            },
+                            label = { Text("${c.provider.displayName} ${providerCounts[c.provider] ?: 0}") }
+                        )
+                    }
+                }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     OutlinedButton(
@@ -1744,8 +1773,8 @@ private fun ModelsDialog(
                         Text(if (loading) "Fetching…" else "Refresh")
                     }
                     Text(
-                        if (query.isBlank()) "${entries.size} shown across ${groups.size} providers"
-                        else "${entries.size} match \"${query.trim().take(24)}\"",
+                        if (query.isBlank()) "${shownEntries.size} shown across ${groups.size} providers"
+                        else "${shownEntries.size} match \"${query.trim().take(24)}\"",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -1809,7 +1838,7 @@ private fun ModelsDialog(
                             )
                         }
                     }
-                    if (entries.isEmpty() && !loading) {
+                    if (shownEntries.isEmpty() && !loading) {
                         item {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,

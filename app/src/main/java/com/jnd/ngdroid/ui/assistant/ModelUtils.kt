@@ -64,7 +64,9 @@ data class CatalogEntry(
 /**
  * Search every cached provider catalog at once, groups in [catalogs] order
  * (caller puts current provider first), rows in each provider's ranked
- * order. Tier filter applies per row. Pure; JVM-testable.
+ * order. Tier filter applies per row. A query matching a provider's display
+ * name ("zen", "gemini") selects that whole provider catalog, tier-filtered —
+ * ids alone don't always match. Pure; JVM-testable.
  */
 fun searchAllCatalogs(
     catalogs: List<ProviderCatalog>,
@@ -72,13 +74,31 @@ fun searchAllCatalogs(
     tier: ModelTierFilter
 ): List<CatalogEntry> {
     val out = mutableListOf<CatalogEntry>()
+    val q = query.trim().lowercase()
     for (c in catalogs) {
         val freeSet = c.freeModels.toSet()
-        for (id in searchModelCatalog(c.models, query, tier, freeSet)) {
-            out.add(CatalogEntry(c.provider, id, id in freeSet))
+        val ids = if (q.isNotEmpty() && c.provider.displayName.lowercase().contains(q)) {
+            rankModelsFreeFirst(tierFilterIds(c.models, tier, freeSet), freeSet)
+        } else {
+            searchModelCatalog(c.models, query, tier, freeSet)
         }
+        for (id in ids) out.add(CatalogEntry(c.provider, id, id in freeSet))
     }
     return out
+}
+
+/** Tier filter without ranking or text match. Pure; JVM-testable. */
+fun tierFilterIds(
+    ids: List<String>,
+    tier: ModelTierFilter,
+    freeIds: Set<String>
+): List<String> {
+    val distinct = ids.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+    return when (tier) {
+        ModelTierFilter.ALL -> distinct
+        ModelTierFilter.FREE -> distinct.filter { it in freeIds }
+        ModelTierFilter.KEYED -> distinct.filter { it !in freeIds }
+    }
 }
 
 /**
