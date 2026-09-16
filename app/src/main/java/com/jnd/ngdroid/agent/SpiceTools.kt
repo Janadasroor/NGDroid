@@ -172,7 +172,10 @@ const val DEFAULT_RUN_TIMEOUT_MS: Long = 30_000
 
 /**
  * Formats a simulation report for the agent: status, error, recent logs,
- * and per-vector summaries (name + points + min/max/last). Pure; JVM-testable.
+ * per-vector summaries (name + points + min/max/last) and, when [series]
+ * is given, a downsampled numeric sample per vector (<= [maxPointsPerTrace]
+ * points each) so the model can "see" waveform shape — resonance, ringing,
+ * clipping — as tokens instead of pixels. Pure; JVM-testable.
  */
 fun formatSimulationReport(
     statusText: String,
@@ -180,7 +183,9 @@ fun formatSimulationReport(
     errorMessage: String?,
     logs: List<String>,
     vectors: List<String>,
-    maxLogLines: Int = 40
+    maxLogLines: Int = 40,
+    series: Map<String, List<Double>> = emptyMap(),
+    maxPointsPerTrace: Int = 64
 ): String = buildString {
     append("status: ").append(statusText.ifBlank { "unknown" })
     if (hasError) append(" [ERROR]")
@@ -195,4 +200,42 @@ fun formatSimulationReport(
         append("vectors:\n")
         vectors.forEach { append("- ").append(it.trim()).append("\n") }
     }
+    if (series.isNotEmpty()) {
+        append("samples:\n")
+        series.forEach { (name, values) ->
+            append("- ").append(name.trim()).append(": ")
+            append(downsampleSeries(values, maxPointsPerTrace).joinToString(", ", "[", "]") { formatSample(it) })
+            append("\n")
+        }
+    }
+}
+
+/** Even stride downsampling to at most [maxPoints] points. Pure. */
+fun downsampleSeries(values: List<Double>, maxPoints: Int): List<Double> {
+    if (values.size <= maxPoints || maxPoints <= 1) return values.take(maxOf(maxPoints, 1))
+    val stride = values.size / maxPoints
+    return values.filterIndexed { i, _ -> i % stride == 0 }.take(maxPoints)
+}
+
+/** Compact numeric sample for agent context (<=4 significant digits). Pure. */
+fun formatSample(v: Double): String = when {
+    !v.isFinite() -> "NaN"
+    v == 0.0 -> "0"
+    else -> compactG("%.4g".format(java.util.Locale.US, v))
+}
+
+/** Trim %g padding: "1.500" -> "1.5", "2.500e+06" -> "2.5e6". Pure. */
+fun compactG(s: String): String {
+    val eIdx = s.indexOfAny(charArrayOf('e', 'E'))
+    if (eIdx < 0) {
+        return if ('.' in s) s.trimEnd('0').trimEnd('.') else s
+    }
+    val mant = s.substring(0, eIdx).trimEnd('0').trimEnd('.')
+    var exp = s.substring(eIdx + 1).trimStart('+')
+    exp = exp.trimStart('0').ifEmpty { "0" }
+    if (exp.startsWith("-")) {
+        val digits = exp.drop(1).trimStart('0').ifEmpty { "0" }
+        exp = "-$digits"
+    }
+    return "${mant}e$exp"
 }

@@ -510,19 +510,27 @@ class SimulationViewModel(
         }
     }
 
-    /** Sync snapshot of current sim state (status/logs/vectors). Pure read. */
+    /** Sync snapshot of current sim state (status/logs/vectors+samples). Pure read. */
     fun snapshotReport(): String {
         val s = repository.state.value
         val plot = s.currentPlot
         val vectors = mutableListOf<String>()
-        plot?.scaleVector?.let { vectors.add(summarizeVector(it.name, it.values)) }
-        plot?.dataVectors?.forEach { vectors.add(summarizeVector(it.name, it.values)) }
+        val series = linkedMapOf<String, List<Double>>()
+        plot?.scaleVector?.let {
+            vectors.add(summarizeVector(it.name, it.values))
+            if (it.values.isNotEmpty()) series[it.name] = it.values
+        }
+        plot?.dataVectors?.forEach {
+            vectors.add(summarizeVector(it.name, it.values))
+            if (it.values.isNotEmpty()) series[it.name] = it.values
+        }
         return com.jnd.ngdroid.agent.formatSimulationReport(
             statusText = s.statusText,
             hasError = s.hasError,
             errorMessage = s.errorMessage,
             logs = s.logs,
-            vectors = vectors
+            vectors = vectors,
+            series = series
         )
     }
 
