@@ -13,6 +13,12 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
+    <!-- Camera attachments (assistant): runtime-granted on every API level. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- required=false: camera-less devices stay installable, the app hides shooting. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
 
     <!-- Package visibility for the in-app share sheet (API 30+ filters
          queryIntentActivities without this; mime types cover PNG/PDF/CSV/text). -->

@@ -4,8 +4,10 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -92,6 +94,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -234,6 +237,22 @@ fun AssistantScreen(
     var showAttachSheet by remember { mutableStateOf(false) }
     var cameraOutFile by remember { mutableStateOf<File?>(null) }
     var cameraOutUri by remember { mutableStateOf<Uri?>(null) }
+    // CAMERA is dangerous on every API level: request first, shoot after grant.
+    // (Launcher callback can't call launchCamera directly — local funs aren't
+    // in scope above their declaration — so the grant bumps a counter that a
+    // later effect consumes.)
+    var pendingCameraShot by remember { mutableStateOf(false) }
+    var cameraGrantBump by remember { mutableIntStateOf(0) }
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            cameraGrantBump++
+        } else {
+            pendingCameraShot = false
+            Toast.makeText(context, "Camera permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
     val takePhoto = rememberLauncherForActivityResult(
         ActivityResultContracts.TakePicture()
     ) { ok ->
@@ -255,6 +274,18 @@ fun AssistantScreen(
             Toast.makeText(context, "Max $MAX_ATTACHMENTS_PER_MESSAGE files per message", Toast.LENGTH_SHORT).show()
             return
         }
+        if (!appContext.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
+            Toast.makeText(context, "No camera on this device", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.CAMERA
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingCameraShot = true
+            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+            return
+        }
         val result = runCatching {
             val dir = File(appContext.filesDir, "uploads").apply { mkdirs() }
             val file = File(dir, "IMG_${System.currentTimeMillis()}.jpg")
@@ -269,6 +300,12 @@ fun AssistantScreen(
             cameraOutFile = null
             cameraOutUri = null
             Toast.makeText(context, "No camera app found", Toast.LENGTH_LONG).show()
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(cameraGrantBump) {
+        if (cameraGrantBump > 0 && pendingCameraShot) {
+            pendingCameraShot = false
+            launchCamera()
         }
     }
 

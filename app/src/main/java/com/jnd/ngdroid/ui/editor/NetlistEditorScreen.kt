@@ -140,6 +140,22 @@ fun NetlistEditorScreen(
     var wrapText by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
 
+    // Progress notifications (33+) need POST_NOTIFICATIONS: ask once on the
+    // first Run; the sim starts regardless, the grant only unlocks %. 26-32
+    // need nothing, so the launcher never fires there.
+    val notifyPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+        onResult = { }
+    )
+    fun ensureNotifyPermission() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context, android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        notifyPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     fun doPaste() {
         val clipText = clipboardManager.getText()?.text
         if (!clipText.isNullOrEmpty()) {
@@ -324,6 +340,7 @@ fun NetlistEditorScreen(
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                         // Via the ViewModel so the foreground service keeps
                         // long runs alive when the app is backgrounded.
+                        ensureNotifyPermission()
                         viewModel.runSimulation()
                         onNavigateToPlot()
                     },
