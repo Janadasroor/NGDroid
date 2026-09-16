@@ -210,4 +210,102 @@ class StubGuardTest {
         assertEquals("FRIENDLY(429 FreeUsageLimitError)", out)
         assertEquals(2, provider.calls)
     }
+
+    /**
+     * Colpitts regression: after render_plot attaches a JPEG, the Zen gateway
+     * can 400 with a bare `Upstream request failed: [400]` (no image/vision
+     * wording). The run must strip images and retry text-only, not surface
+     * the raw error.
+     */
+    private class ImageTool : AgentTool {
+        override val name = "render_plot"
+        override val description = "fake plot"
+        override val parametersJsonSchema = "{}"
+        override suspend fun execute(argsJson: String) = "plot: out (64KB jpeg)"
+        override suspend fun executeEx(argsJson: String) = ToolResult(
+            execute(argsJson),
+            listOf(LlmImage("image/jpeg", "AAAA"))
+        )
+    }
+
+    private class FailOnImagesProvider : LlmProvider {
+        override val id = "test"
+        override val displayName = "Test"
+        override val defaultModel = "test"
+        var calls = 0
+        var retriedWithoutImages = false
+        override suspend fun chat(req: LlmRequest): LlmResponse = throw AssertionError("no chat")
+        override suspend fun streamChat(req: LlmRequest, onPartial: (String) -> Unit): LlmResponse {
+            calls++
+            if (calls == 1) {
+                return LlmResponse(
+                    "",
+                    listOf(ToolCall("1", "render_plot", """{}"""))
+                )
+            }
+            val hasImages = req.messages.any { it.images.isNotEmpty() }
+            if (hasImages) {
+                throw IllegalStateException(
+                    "HTTP 400 for https://opencode.ai/zen/v1/chat/completions: " +
+                        "Upstream request failed: [400] Provider returned error"
+                )
+            }
+            retriedWithoutImages = true
+            return LlmResponse("Clean sinewave confirmed: https://example.com/plot.png")
+        }
+        override suspend fun listModels(apiKey: String) = emptyList<String>()
+    }
+
+    @Test
+    fun generic400WithImagesRetriesTextOnly() = runTest {
+        val provider = FailOnImagesProvider()
+        val reg = MapToolRegistry().apply { register(ImageTool()) }
+        val out = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, reg)
+            .run("build colpitts oscillator")
+        assertEquals("Clean sinewave confirmed: https://example.com/plot.png", out)
+        assertTrue(provider.retriedWithoutImages)
+    }
+
+    /**
+     * Colpitts regression: model goes quiet (blank text, no calls) after the
+     * vision turn. The run must nudge once for a text-only answer instead of
+     * storing "(empty response)".
+     */
+    @Test
+    fun emptyAfterToolsRetriesWithNudge() = runTest {
+        val provider = ScriptedProvider(
+            listOf(
+                LlmResponse(
+                    "",
+                    listOf(ToolCall("1", "render_plot", """{}"""))
+                ),
+                LlmResponse(""),
+                LlmResponse("Clean sinewave: https://example.com/plot.png")
+            )
+        )
+        val reg = MapToolRegistry().apply { register(ImageTool()) }
+        val out = AgentOrchestrator(AgentConfig(maxIterations = 5), provider, reg)
+            .run("build colpitts oscillator")
+        assertEquals("Clean sinewave: https://example.com/plot.png", out)
+        assertEquals(3, provider.calls)
+        assertTrue(provider.seenSystems.any { EMPTY_RETRY_NUDGE in it })
+    }
+
+    @Test
+    fun emptyAfterToolsBudgetSpentFallsBack() = runTest {
+        val provider = ScriptedProvider(
+            listOf(
+                LlmResponse(
+                    "",
+                    listOf(ToolCall("1", "render_plot", """{}"""))
+                ),
+                LlmResponse("")
+            )
+        )
+        val reg = MapToolRegistry().apply { register(ImageTool()) }
+        val out = AgentOrchestrator(AgentConfig(maxIterations = 5, maxStubRetries = 0), provider, reg)
+            .run("build colpitts oscillator")
+        assertEquals(EMPTY_FINAL_FALLBACK, out)
+        assertEquals(2, provider.calls)
+    }
 }

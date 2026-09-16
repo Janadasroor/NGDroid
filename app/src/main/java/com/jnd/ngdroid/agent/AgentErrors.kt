@@ -72,6 +72,12 @@ object AgentErrors {
             "http 5" in low || "internal server error" in low || "bad gateway" in low ||
                 "service unavailable" in low || "upstream error" in low ->
                 "The provider is having issues (server error). Retry in a bit."
+            // Zen gateway wraps an upstream 400 with no detail, e.g.
+            // "Error from provider (Console): Upstream request failed: [400]
+            // Provider returned error" — the model route flaked, not the app.
+            "upstream request failed" in low || "provider returned error" in low ->
+                "$name's upstream route failed this request (gateway 400). " +
+                    "Tap Regenerate to retry — or pick another free model."
             else -> msg.take(200)
         }
     }

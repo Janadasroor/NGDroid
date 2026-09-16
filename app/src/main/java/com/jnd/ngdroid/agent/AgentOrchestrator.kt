@@ -13,7 +13,8 @@ data class AgentContentPolicy(
     val contentToolNames: Set<String> = DEFAULT_CONTENT_TOOLS,
     val promisePhrases: List<String> = DEFAULT_PROMISE_PHRASES,
     val stubRetryNudge: String = STUB_RETRY_NUDGE,
-    val stalledTrailer: String = STALLED_TRAILER
+    val stalledTrailer: String = STALLED_TRAILER,
+    val emptyRetryNudge: String = EMPTY_RETRY_NUDGE
 )
 
 /** Tools whose use promises deliverables (netlist, links, images, files) in the reply. */
@@ -110,6 +111,29 @@ fun repairHistory(history: List<ChatMessage>): List<ChatMessage> {
     return out
 }
 
+/** Nudge appended as a user turn when the model returns blank after tools ran. */
+const val EMPTY_RETRY_NUDGE: String =
+    "Your last reply came back empty. Answer now in plain text using the tool " +
+        "results already in this conversation: include the validated netlist " +
+        "in a fenced code block plus links or file locations. " +
+        "Do not call more tools, do not end with a promise."
+
+/** Shown when the model stays empty even after the nudge (budget spent). */
+const val EMPTY_FINAL_FALLBACK: String =
+    "The model returned an empty reply after running tools — tap Regenerate " +
+        "to retry; the tool results above are kept."
+
+/**
+ * True for HTTP 400/422 rejections. Gateways often return these without any
+ * image/vision wording (e.g. `Upstream request failed: [400] Provider
+ * returned error`), so they must count as vision rejections on their own
+ * when the failed request carried images. Pure.
+ */
+fun isBadRequest(message: String): Boolean {
+    val low = message.lowercase()
+    return "400" in low || "422" in low
+}
+
 /** Nudge appended as a user turn when the guard fires. */
 const val STUB_RETRY_NUDGE: String =
     "Your last reply promises results but contains no netlist code block, " +
@@ -181,10 +205,13 @@ class AgentOrchestrator(
             val resp: LlmResponse = try {
                 provider.streamChat(req, forwardPartial)
             } catch (e: Exception) {
-                // Vision fallback: a text-only model rejecting image_url/input_image
-                // should still answer from the metadata instead of hard-failing.
+                // Vision fallback: a model rejecting images should still answer
+                // from the text metadata instead of hard-failing. A 400/422 on
+                // an image-bearing request counts even without image wording —
+                // gateways often return bare `Upstream request failed: [400]`.
                 val msg = e.message.orEmpty()
-                if (conversation.any { it.images.isNotEmpty() } && isVisionRejection(msg)) {
+                val hasImages = conversation.any { it.images.isNotEmpty() }
+                if (hasImages && (isVisionRejection(msg) || isBadRequest(msg))) {
                     for (i in conversation.indices) {
                         if (conversation[i].images.isNotEmpty()) {
                             conversation[i] = conversation[i].copy(images = emptyList())
@@ -207,13 +234,32 @@ class AgentOrchestrator(
                 } else {
                     onEvent(AgentEvent.Error("Provider error: ${e.message}"))
                     val friendly = errorFormatter(e.message ?: e.javaClass.simpleName)
-                    return finalAfterError(lastText, friendly, contentToolUsed)
+                    return finalAfterError(lastText, friendly, contentToolUsed, config.contentPolicy)
                 }
             }
             if (resp.text.isNotBlank()) lastText = resp.text
 
             if (resp.toolCalls.isEmpty()) {
                 val text = resp.text.ifBlank { lastText.ifBlank { "(empty response)" } }
+                // Empty guard: the model went quiet after tools ran (common
+                // right after a vision turn the model chokes on). Strip any
+                // images, nudge once for a text-only answer from the results
+                // already in context — never show "(empty response)".
+                if (resp.text.isBlank() && lastText.isBlank() &&
+                    stubRetries < config.maxStubRetries && (toolAttempted || contentToolUsed)
+                ) {
+                    stubRetries++
+                    for (i in conversation.indices) {
+                        if (conversation[i].images.isNotEmpty()) {
+                            conversation[i] = conversation[i].copy(images = emptyList())
+                        }
+                    }
+                    // No blank ASSISTANT turn: null-content assistant messages
+                    // trip strict gateways — the USER nudge alone continues.
+                    conversation.add(ChatMessage(ChatRole.USER, config.contentPolicy.emptyRetryNudge))
+                    continue
+                }
+                if (resp.text.isBlank() && lastText.isBlank()) return EMPTY_FINAL_FALLBACK
                 // Stub guard: tools ran but the "final" reply is a promise with
                 // no netlist, link, or image — grant one nudge turn instead of
                 // showing "coming up" with nothing behind it.

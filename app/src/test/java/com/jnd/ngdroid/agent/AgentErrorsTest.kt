@@ -73,4 +73,17 @@ class AgentErrorsTest {
         assertTrue(out, out.contains("something odd happened"))
         assertFalse(out, out.contains("http"))
     }
+
+    @Test
+    fun upstream400SuggestsRetryOrOtherModel() {
+        // Exact gateway shape from the Colpitts chat on mimo-v2.5-free.
+        val raw = "Provider error: HTTP 400 for https://opencode.ai/zen/v1/chat/completions: " +
+            "{\"error\":{\"type\":\"server_error\",\"message\":\"Error from provider " +
+            "(Console): Upstream request failed: [400] Provider returned error\"}}"
+        val out = AgentErrors.format(raw, "mimo-v2.5-free")
+        assertTrue(out, out.contains("mimo-v2.5-free"))
+        assertTrue(out, out.contains("Regenerate"))
+        assertFalse(out, out.contains("{"))
+        assertFalse(out, out.contains("http"))
+    }
 }
