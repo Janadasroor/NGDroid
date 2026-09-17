@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -422,65 +423,74 @@ fun DrawScope.drawWaveform(
         }
     }
 
-    // Draw Traces
-    dataVectors.forEachIndexed { vecIdx, vec ->
-        if (activeVectors.contains(vec.name) && vec.values.isNotEmpty()) {
-            val path = Path()
-            val color = TraceColors[vecIdx % TraceColors.size]
+    // Draw Traces, clipped to the graph rect: pan/zoom may push samples
+    // outside the axes, and unclipped paths paint over labels and the
+    // legend area. Grid, axes, labels, and cursor guides stay unclipped.
+    clipRect(
+        left = paddingLeft,
+        top = paddingTop,
+        right = paddingLeft + graphWidth,
+        bottom = paddingTop + graphHeight
+    ) {
+        dataVectors.forEachIndexed { vecIdx, vec ->
+            if (activeVectors.contains(vec.name) && vec.values.isNotEmpty()) {
+                val path = Path()
+                val color = TraceColors[vecIdx % TraceColors.size]
 
-            val useRightAxis = isDualAxis && vec.isCurrent
-            val currentYMin = if (useRightAxis) yMinRight else yMinLeft
-            val currentYRange = if (useRightAxis) yRangeRight else yRangeLeft
+                val useRightAxis = isDualAxis && vec.isCurrent
+                val currentYMin = if (useRightAxis) yMinRight else yMinLeft
+                val currentYRange = if (useRightAxis) yRangeRight else yRangeLeft
 
-            val pts = decimated[vec.name]
-                ?: decimateXY(scaleVector.values, vec.values)
-            val count = pts.size
+                val pts = decimated[vec.name]
+                    ?: decimateXY(scaleVector.values, vec.values)
+                val count = pts.size
 
-            var isFirst = true
-            for ((xVal, yVal) in pts) {
+                var isFirst = true
+                for ((xVal, yVal) in pts) {
 
-                // Non-finite samples (e.g. A/B divide-by-zero): break the
-                // path so the next valid sample starts a fresh segment.
-                // (Only reachable on small pass-through traces — decimation
-                // drops non-finite samples for large ones.)
-                if (!xVal.isFinite() || !yVal.isFinite()) {
-                    isFirst = true
-                    continue
-                }
+                    // Non-finite samples (e.g. A/B divide-by-zero): break the
+                    // path so the next valid sample starts a fresh segment.
+                    // (Only reachable on small pass-through traces — decimation
+                    // drops non-finite samples for large ones.)
+                    if (!xVal.isFinite() || !yVal.isFinite()) {
+                        isFirst = true
+                        continue
+                    }
 
-                val px = if (isLogX) {
-                    val logVal = log10(max(1e-12, xVal))
-                    paddingLeft + ((logVal - xMinLog) / xRangeLog * graphWidth).toFloat() + panOffsetX
-                } else {
-                    paddingLeft + ((xVal - xMin) / xRangeLinear * graphWidth).toFloat() + panOffsetX
-                }
-
-                val py = paddingTop + graphHeight - ((yVal - currentYMin) / currentYRange * graphHeight).toFloat() + panOffsetY
-
-                if (px in (paddingLeft - 10f)..(paddingLeft + graphWidth + 10f)) {
-                    if (isFirst) {
-                        path.moveTo(px, py)
-                        isFirst = false
+                    val px = if (isLogX) {
+                        val logVal = log10(max(1e-12, xVal))
+                        paddingLeft + ((logVal - xMinLog) / xRangeLog * graphWidth).toFloat() + panOffsetX
                     } else {
-                        path.lineTo(px, py)
+                        paddingLeft + ((xVal - xMin) / xRangeLinear * graphWidth).toFloat() + panOffsetX
                     }
 
-                    if (settings.showDataPoints && count < 500) {
-                        drawCircle(
-                            color = color,
-                            radius = settings.traceStrokeWidthDp.dp.toPx(),
-                            center = Offset(px, py)
-                        )
+                    val py = paddingTop + graphHeight - ((yVal - currentYMin) / currentYRange * graphHeight).toFloat() + panOffsetY
+
+                    if (px in (paddingLeft - 10f)..(paddingLeft + graphWidth + 10f)) {
+                        if (isFirst) {
+                            path.moveTo(px, py)
+                            isFirst = false
+                        } else {
+                            path.lineTo(px, py)
+                        }
+
+                        if (settings.showDataPoints && count < 500) {
+                            drawCircle(
+                                color = color,
+                                radius = settings.traceStrokeWidthDp.dp.toPx(),
+                                center = Offset(px, py)
+                            )
+                        }
                     }
+
                 }
 
+                drawPath(
+                    path = path,
+                    color = color,
+                    style = Stroke(width = settings.traceStrokeWidthDp.dp.toPx())
+                )
             }
-
-            drawPath(
-                path = path,
-                color = color,
-                style = Stroke(width = settings.traceStrokeWidthDp.dp.toPx())
-            )
         }
     }
 
