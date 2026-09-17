@@ -137,8 +137,8 @@ android {
         // (incl. 32-bit libngspice coverage), so 26 is the release floor.
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
