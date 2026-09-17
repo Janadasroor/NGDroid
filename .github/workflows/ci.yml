@@ -26,7 +26,7 @@ jobs:
           sudo apt-get install -y -qq wget unzip > /dev/null
           mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
           cd "$ANDROID_SDK_ROOT"
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O tools.zip
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-14742923_latest.zip -O tools.zip
           unzip -q tools.zip -d cmdline-tools
           mv cmdline-tools/cmdline-tools cmdline-tools/latest
           rm tools.zip
