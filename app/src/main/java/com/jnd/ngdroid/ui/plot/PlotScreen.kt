@@ -89,6 +89,18 @@ fun PlotScreen(
     // Long circuit paths wrap to 3+ lines: single-line + tap to expand.
     var titleExpanded by remember { mutableStateOf(false) }
 
+    // Canvas graph width for cursor math (reported by WaveformCanvas).
+    var graphWidthPx by remember { mutableFloatStateOf(0f) }
+
+    // The one measured signal: picked in the signal dialog (shown before
+    // cursors place) or by double-tapping a net name. Null = prompt to pick.
+    var measuredTraceName by remember { mutableStateOf<String?>(null) }
+    var showSignalPicker by remember { mutableStateOf(false) }
+    fun measureTrace(name: String) {
+        measuredTraceName = name
+        showCursors = true
+    }
+
     var isNetsPanelExpanded by remember { mutableStateOf(false) }
 
     var selectedMeasurements by remember { mutableStateOf<NetMeasurements?>(null) }
@@ -110,6 +122,8 @@ fun PlotScreen(
         if (mathVec != null && mathVisible) state.activeVectors + mathVec.name
         else state.activeVectors
     }
+    // Dots + readout follow the pick only while it is still active.
+    val effectiveMeasured = measuredTraceName?.takeIf { it in combinedActive }
     fun toggleMathDialog() {
         showMathDialog = true
     }
@@ -200,6 +214,20 @@ fun PlotScreen(
         )
     }
 
+    // Signal picker: shown before cursors place, and from the readout row.
+    if (showSignalPicker) {
+        SignalPickerDialog(
+            dataVectors = allData,
+            activeVectors = combinedActive,
+            selectedName = effectiveMeasured,
+            onPick = { name ->
+                showSignalPicker = false
+                measureTrace(name)
+            },
+            onDismiss = { showSignalPicker = false }
+        )
+    }
+
     // In-app share sheet (apps only — never the SMS "Select conversation"
     // dead end). Prepared off the main thread; shown when ready.
     shareOffer?.let { offer ->
@@ -266,7 +294,10 @@ fun PlotScreen(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     com.jnd.ngdroid.ui.console.OpTableButton(repository = repository)
-                    IconButton(onClick = { showCursors = !showCursors }) {
+                    IconButton(onClick = {
+                        if (showCursors) showCursors = false
+                        else showSignalPicker = true
+                    }) {
                         Icon(
                             Icons.Default.CenterFocusWeak,
                             contentDescription = "Cursors",
@@ -410,7 +441,9 @@ fun PlotScreen(
                                 panOffsetY += panChange.y
                             },
                             modifier = Modifier.fillMaxSize(),
-                            textMeasurer = textMeasurer
+                            textMeasurer = textMeasurer,
+                            onGraphWidth = { graphWidthPx = it },
+                            measuredTraceName = effectiveMeasured
                         )
 
                         NetsOverlay(
@@ -425,7 +458,8 @@ fun PlotScreen(
                             },
                             onMeasureVector = { vec ->
                                 selectedMeasurements = measureUseCase(plot.scaleVector, vec)
-                            }
+                            },
+                            onDoubleClickVector = ::measureTrace
                         )
 
                         // Floating Landscape Quick Controls (Top-Right)
@@ -436,7 +470,10 @@ fun PlotScreen(
                                     .padding(8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                IconButton(onClick = { showCursors = !showCursors }) {
+                                IconButton(onClick = {
+                                    if (showCursors) showCursors = false
+                                    else showSignalPicker = true
+                                }) {
                                     Icon(
                                         Icons.Default.CenterFocusWeak,
                                         contentDescription = "Cursors",
@@ -467,7 +504,14 @@ fun PlotScreen(
                         CursorReadoutBar(
                             scaleVector = scaleVec,
                             cursor1Frac = cursor1Frac,
-                            cursor2Frac = cursor2Frac
+                            cursor2Frac = cursor2Frac,
+                            dataVectors = allData,
+                            activeVectors = combinedActive,
+                            zoomScaleX = zoomScaleX,
+                            panOffsetX = panOffsetX,
+                            graphWidthPx = graphWidthPx,
+                            measuredTraceName = effectiveMeasured,
+                            onPickSignal = { showSignalPicker = true }
                         )
                     }
 
@@ -477,7 +521,8 @@ fun PlotScreen(
                             scaleName = scaleVec.name,
                             dataVectors = allData,
                             activeVectors = combinedActive,
-                            darkPlotBackground = settings.darkPlotBackground
+                            darkPlotBackground = settings.darkPlotBackground,
+                            onDoubleClickTrace = ::measureTrace
                         )
                     }
                 }

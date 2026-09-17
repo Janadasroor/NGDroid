@@ -92,6 +92,73 @@ fun nearestCursor(frac: Float, cursor1Frac: Float, cursor2Frac: Float): Int =
     if (abs(frac - cursor1Frac) <= abs(frac - cursor2Frac)) 1 else 2
 
 /**
+ * Data X under a cursor screen fraction: exact inverse of the trace
+ * mapping (zoom/pan aware — same math as the tick-label inversion).
+ * Falls back to the full-range mapping when the viewport is unknown.
+ * Pure; JVM-testable.
+ */
+fun cursorDataX(
+    frac: Float,
+    xMin: Double,
+    xRange: Double,
+    xMinLog: Double,
+    xRangeLog: Double,
+    panOffsetX: Float,
+    graphWidth: Float,
+    isLogX: Boolean
+): Double {
+    if (graphWidth <= 0f) {
+        // Viewport unknown (first layout): full-range mapping, zoom-agnostic.
+        return if (isLogX) 10.0.pow(xMinLog + frac * xRangeLog)
+        else xMin + frac * xRange
+    }
+    val t = (frac * graphWidth - panOffsetX) / graphWidth
+    return if (isLogX) 10.0.pow(xMinLog + t * xRangeLog)
+    else xMin + t * xRange
+}
+
+/**
+ * Y at data [x] by linear interpolation between bracketing finite samples.
+ * Clamps to the nearest finite endpoint outside the range; null when the
+ * series is empty, mismatched, or has no finite samples nearby. Pure.
+ */
+fun interpolateYAt(x: Double, xs: List<Double>, ys: List<Double>): Double? {
+    if (xs.isEmpty() || xs.size != ys.size || !x.isFinite()) return null
+    var lo = 0
+    var hi = xs.size - 1
+    if (x <= xs[0]) {
+        for (i in xs.indices) if (ys[i].isFinite()) return ys[i]
+        return null
+    }
+    if (x >= xs[hi]) {
+        for (i in xs.indices.reversed()) if (ys[i].isFinite()) return ys[i]
+        return null
+    }
+    // Binary search for the bracketing segment, then interpolate.
+    while (hi - lo > 1) {
+        val mid = (lo + hi) ushr 1
+        if (xs[mid] <= x) lo = mid else hi = mid
+    }
+    val x0 = xs[lo]
+    val x1 = xs[hi]
+    val y0 = ys[lo]
+    val y1 = ys[hi]
+    if (!y0.isFinite() || !y1.isFinite() || x1 <= x0) {
+        // Corrupt bracket (e.g. divide-by-zero gap): zero-order hold from
+        // the nearest finite sample on either side.
+        var d = 0
+        while (lo - d >= 0 || hi + d < xs.size) {
+            if (lo - d >= 0 && ys[lo - d].isFinite()) return ys[lo - d]
+            if (hi + d < xs.size && ys[hi + d].isFinite()) return ys[hi + d]
+            d++
+        }
+        return null
+    }
+    val t = (x - x0) / (x1 - x0)
+    return y0 + t * (y1 - y0)
+}
+
+/**
  * Shared waveform renderer used by both the on-screen [WaveformCanvas]
  * and offscreen PNG/PDF export. Supports Dual Y-Axes (Voltage vs Current)
  * and Logarithmic Frequency X-Axis for AC Bode plots.
@@ -108,6 +175,8 @@ fun DrawScope.drawWaveform(
     showCursors: Boolean = false,
     cursor1Frac: Float = 0.3f,
     cursor2Frac: Float = 0.7f,
+    /** The one measured trace: only its cursor dots draw (rest stay clean). */
+    measuredTraceName: String? = null,
     /** Null = skip axis tick labels (tests / label-less callers). */
     textMeasurer: TextMeasurer? = null
 ) {
@@ -397,5 +466,44 @@ fun DrawScope.drawWaveform(
             radius = 6.dp.toPx(),
             center = Offset(c2Px, paddingTop + graphHeight / 2)
         )
+
+        // Measurement dots: interpolated Y of every active trace under each
+        // cursor, in trace colors — the visual anchor for the readout values.
+        val c1x = cursorDataX(
+            cursor1Frac, xMin, xRangeLinear, xMinLog, xRangeLog,
+            panOffsetX, graphWidth, isLogX
+        )
+        val c2x = cursorDataX(
+            cursor2Frac, xMin, xRangeLinear, xMinLog, xRangeLog,
+            panOffsetX, graphWidth, isLogX
+        )
+        dataVectors.forEachIndexed { vecIdx, vec ->
+            if (!activeVectors.contains(vec.name) || vec.values.isEmpty()) return@forEachIndexed
+            if (measuredTraceName != null && vec.name != measuredTraceName) return@forEachIndexed
+            val useRightAxis = isDualAxis && vec.isCurrent
+            val axisMin = if (useRightAxis) yMinRight else yMinLeft
+            val axisRange = if (useRightAxis) yRangeRight else yRangeLeft
+            if (axisRange == 0.0) return@forEachIndexed
+            val color = TraceColors[vecIdx % TraceColors.size]
+            for ((cx, frac) in listOf(c1x to cursor1Frac, c2x to cursor2Frac)) {
+                val yVal = interpolateYAt(cx, scaleVector.values, vec.values) ?: continue
+                if (!yVal.isFinite()) continue
+                val dotPx = paddingLeft + frac * graphWidth
+                val dotPy = paddingTop + graphHeight -
+                    ((yVal - axisMin) / axisRange * graphHeight).toFloat() + panOffsetY
+                if (dotPy in paddingTop..(paddingTop + graphHeight)) {
+                    drawCircle(
+                        color = color,
+                        radius = 5.dp.toPx(),
+                        center = Offset(dotPx, dotPy)
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = 2.dp.toPx(),
+                        center = Offset(dotPx, dotPy)
+                    )
+                }
+            }
+        }
     }
 }

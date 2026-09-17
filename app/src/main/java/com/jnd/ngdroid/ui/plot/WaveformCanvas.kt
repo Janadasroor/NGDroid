@@ -8,6 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextMeasurer
 import com.jnd.ngdroid.data.AppSettings
@@ -39,7 +40,11 @@ fun WaveformCanvas(
     onCursor2Move: (Float) -> Unit,
     onTransform: (zoomChange: Float, panChange: Offset) -> Unit,
     modifier: Modifier = Modifier,
-    textMeasurer: TextMeasurer? = null
+    textMeasurer: TextMeasurer? = null,
+    /** Reports graph width px so the readout can invert cursor fractions to data. */
+    onGraphWidth: (Float) -> Unit = {},
+    /** The one measured trace: only its cursor dots draw. */
+    measuredTraceName: String? = null
 ) {
     val density = LocalDensity.current
     // Tap places the nearer cursor (pinch/pan stays on the transform block;
@@ -67,6 +72,15 @@ fun WaveformCanvas(
     }
     Canvas(
         modifier = modifier
+            .onSizeChanged {
+                val geo = plotGeometry(
+                    density,
+                    isDualAxis(dataVectors, activeVectors),
+                    it.width.toFloat(),
+                    it.height.toFloat()
+                )
+                if (geo.graphWidth > 0) onGraphWidth(geo.graphWidth)
+            }
             .then(tapModifier)
             .pointerInput(Unit) {
                 detectTransformGestures { _, pan, zoom, _ ->
@@ -86,6 +100,7 @@ fun WaveformCanvas(
             showCursors = showCursors,
             cursor1Frac = cursor1Frac,
             cursor2Frac = cursor2Frac,
+            measuredTraceName = measuredTraceName,
             textMeasurer = textMeasurer
         )
     }
