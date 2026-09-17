@@ -58,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jnd.ngdroid.engine.VectorSeries
@@ -250,41 +251,52 @@ fun CursorReadoutBar(
         shape = RoundedCornerShape(8.dp)
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+            // X row: fixed single-line height on any width. Narrow portrait
+            // screens cannot fit all four readouts side by side, so the row
+            // scrolls horizontally (same pattern as PlotLegend) instead of
+            // wrapping each value onto two lines and doubling the card.
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "C1: ${formatEng(x1, unitStr)}",
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
-                    color = Color(0xFF00E5FF)
+                    color = Color(0xFF00E5FF),
+                    maxLines = 1
                 )
                 Text(
                     text = "C2: ${formatEng(x2, unitStr)}",
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
-                    color = Color(0xFFFF9100)
+                    color = Color(0xFFFF9100),
+                    maxLines = 1
                 )
                 Text(
                     text = "ΔX: ${formatEng(dx, unitStr)}",
                     style = MaterialTheme.typography.labelSmall,
                     fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1
                 )
                 if (!isLogX) {
                     Text(
                         text = "Freq: ${formatEng(freqHz, "Hz")}",
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
-                        color = Color(0xFF76FF03)
+                        color = Color(0xFF76FF03),
+                        maxLines = 1
                     )
                 }
             }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
                     .clickable(onClick = onPickSignal)
                     .padding(top = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -294,7 +306,8 @@ fun CursorReadoutBar(
                     Text(
                         text = "Tap to pick a signal to measure",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1
                     )
                 } else {
                     Box(
@@ -316,7 +329,7 @@ fun CursorReadoutBar(
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f)
+                        maxLines = 1
                     )
                 }
             }
