@@ -37,5 +37,14 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
+      - name: License headers
+        run: |
+          missing=$(grep -rL "Copyright" --include='*.kt' --include='*.cpp' --include='*.h' --include='*.kts' app/src build.gradle.kts app/build.gradle.kts settings.gradle.kts app/src/main/cpp/CMakeLists.txt || true)
+          if [ -n "$missing" ]; then
+            echo "Files missing the Apache license header:"
+            echo "$missing"
+            exit 1
+          fi
+
       - name: Assemble debug (incl. native lib)
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace

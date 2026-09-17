@@ -1,0 +1,51 @@
+NGDroid
+Copyright 2026 Janada Sroor
+
+This product includes the following third-party software.
+
+1. AndroidX libraries (Apache License 2.0)
+   Copyright The Android Open Source Project.
+   - androidx.core:core-ktx 1.10.1
+   - androidx.lifecycle:lifecycle-runtime-ktx 2.6.1
+   - androidx.lifecycle:lifecycle-viewmodel-compose 2.8.7
+   - androidx.activity:activity-compose 1.8.0
+   - androidx.compose bill of materials 2026.02.01
+     (ui, ui-graphics, ui-tooling, material3, material-icons)
+   - androidx.datastore:datastore-preferences, datastore-core 1.1.1
+   License: http://www.apache.org/licenses/LICENSE-2.0
+
+2. Kotlin and kotlinx libraries (Apache License 2.0)
+   Copyright JetBrains s.r.o. and Kotlin contributors.
+   - org.jetbrains.kotlin:kotlin-bom 2.2.10
+   - org.jetbrains.kotlinx:kotlinx-coroutines-android 1.8.1
+   - org.jetbrains.kotlinx:kotlinx-serialization-json 1.7.3
+   License: http://www.apache.org/licenses/LICENSE-2.0
+
+3. OkHttp (Apache License 2.0)
+   Copyright Square, Inc.
+   - com.squareup.okhttp3:okhttp 4.12.0
+   License: http://www.apache.org/licenses/LICENSE-2.0
+
+4. Multiplatform Markdown Renderer (Apache License 2.0)
+   Copyright Mike Penz.
+   - com.mikepenz:multiplatform-markdown-renderer-m3 0.35.0
+   - com.mikepenz:multiplatform-markdown-renderer-coil3 0.35.0
+   License: http://www.apache.org/licenses/LICENSE-2.0
+
+5. Coil (Apache License 2.0)
+   Copyright Coil contributors.
+   - io.coil-kt.coil3:coil-network-okhttp 3.1.0
+   License: http://www.apache.org/licenses/LICENSE-2.0
+
+6. ngspice shared library (BSD-style license)
+   Copyright the ngspice project.
+   Prebuilt libngspice.so binaries are bundled under
+   app/src/main/jniLibs for the arm64-v8a and x86_64 ABIs and are
+   loaded at runtime by the application's JNI bridge. ngspice is
+   distributed under its own BSD-style open-source license; see
+   https://ngspice.sourceforge.io/ for the full license text.
+
+Test-only dependencies (not shipped in the application):
+   - junit:junit 4.13.2 (Eclipse Public License 1.0)
+   - androidx.test.ext:junit 1.1.5, androidx.test.espresso:espresso-core 3.5.1
+     (Apache License 2.0)
