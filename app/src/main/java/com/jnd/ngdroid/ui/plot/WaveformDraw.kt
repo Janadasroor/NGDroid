@@ -449,23 +449,29 @@ fun DrawScope.drawWaveform(
             end = Offset(c1Px, paddingTop + graphHeight),
             strokeWidth = 2.dp.toPx()
         )
-        drawCircle(
-            color = Color(0xFF00E5FF),
-            radius = 6.dp.toPx(),
-            center = Offset(c1Px, paddingTop + graphHeight / 2)
-        )
-
         drawLine(
             color = Color(0xFFFF9100),
             start = Offset(c2Px, paddingTop),
             end = Offset(c2Px, paddingTop + graphHeight),
             strokeWidth = 2.dp.toPx()
         )
-        drawCircle(
-            color = Color(0xFFFF9100),
-            radius = 6.dp.toPx(),
-            center = Offset(c2Px, paddingTop + graphHeight / 2)
-        )
+
+        // One dot per cursor: the measured trace's value. The old mid-line
+        // handle circles are gone — they doubled every cursor.
+        val measuredActive = measuredTraceName != null &&
+            activeVectors.contains(measuredTraceName)
+        if (!measuredActive) {
+            drawCircle(
+                color = Color(0xFF00E5FF),
+                radius = 6.dp.toPx(),
+                center = Offset(c1Px, paddingTop + graphHeight / 2)
+            )
+            drawCircle(
+                color = Color(0xFFFF9100),
+                radius = 6.dp.toPx(),
+                center = Offset(c2Px, paddingTop + graphHeight / 2)
+            )
+        }
 
         // Measurement dots: interpolated Y of every active trace under each
         // cursor, in trace colors — the visual anchor for the readout values.
