@@ -63,6 +63,20 @@ Install on a connected device or emulator:
 ./gradlew :app:installDebug
 ```
 
+Build a signed release APK locally (requires `release.keystore` in the
+project root plus `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and
+`ANDROID_KEY_PASSWORD` in `~/.gradle/gradle.properties`):
+
+```bash
+./gradlew :app:assembleRelease
+```
+
+Pushing a `v*` tag builds and signs the release in CI (keystore and
+passwords come from repository secrets) and attaches the APKs to the
+GitHub release. Important: `release.keystore` is gitignored and cannot be
+recovered if lost — losing it means installed apps can never be updated
+in place. Keep an offline backup.
+
 Continuous integration (`.github/workflows/ci.yml`) runs the unit tests and assembles the debug build, including the native library, on every push to `master` and on pull requests.
 
 ## AI assistant setup

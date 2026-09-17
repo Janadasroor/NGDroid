@@ -165,6 +165,23 @@ android {
         )
     }
 
+    signingConfigs {
+        // Secrets come from the environment (CI) or ~/.gradle/gradle.properties
+        // (local) — never from version control. Missing values simply leave
+        // this config unusable; it is only attached to the release build type
+        // when a keystore file is actually present (see buildTypes below).
+        fun signingSecret(name: String): String? =
+            System.getenv(name) ?: (findProperty(name) as String?)
+        create("release") {
+            storeFile = System.getenv("ANDROID_KEYSTORE_FILE")
+                ?.let(::File)?.takeIf { it.isFile }
+                ?: rootProject.file("release.keystore").takeIf { it.isFile }
+            storePassword = signingSecret("ANDROID_KEYSTORE_PASSWORD")
+            keyAlias = signingSecret("ANDROID_KEY_ALIAS")
+            keyPassword = signingSecret("ANDROID_KEY_PASSWORD")
+        }
+    }
+
     splits {
         abi {
             isEnable = true
@@ -184,6 +201,16 @@ android {
         release {
             optimization {
                 enable = false
+            }
+            // Release signing: keystore never lives in git. CI decodes it
+            // from the ANDROID_KEYSTORE_BASE64 secret to the path in
+            // ANDROID_KEYSTORE_FILE; local builds use ./release.keystore
+            // when present, otherwise fall back to the debug key.
+            val ksFile = System.getenv("ANDROID_KEYSTORE_FILE")
+                ?.let(::File)?.takeIf { it.isFile }
+                ?: rootProject.file("release.keystore").takeIf { it.isFile }
+            if (ksFile != null) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }
