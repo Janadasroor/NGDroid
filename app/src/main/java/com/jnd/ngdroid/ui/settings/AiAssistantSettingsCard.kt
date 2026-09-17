@@ -167,8 +167,8 @@ fun AiAssistantSettingsCard(
                         "Get a key from console.anthropic.com. The app calls " +
                             "api.anthropic.com/v1 directly — listing is free, chat needs credits."
                     AgentProvider.OPENCODE_ZEN ->
-                        "Get a key from opencode.ai. The app calls " +
-                            "opencode.ai/zen/v1 directly."
+                        "Get a key from opencode.ai (free). The app calls " +
+                            "opencode.ai/zen/v1 directly — free models run on your quota."
                     AgentProvider.OPENCODE_GO ->
                         "Subscribe to Go at opencode.ai ($10/mo) and paste the key. " +
                             "The app calls opencode.ai/zen/go/v1 directly."

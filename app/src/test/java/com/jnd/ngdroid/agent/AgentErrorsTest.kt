@@ -35,8 +35,21 @@ class AgentErrorsTest {
             "\"message\":\"Error from provider (Console): Rate limit exceeded. Please try again later.\"}}"
         val out = AgentErrors.format(raw, "mimo-v2.5-free")
         assertTrue(out, out.contains("mimo-v2.5-free"))
-        assertTrue(out, out.contains("anonymous free lane"))
+        assertTrue(out, out.contains("free quota"))
+        assertTrue(out, out.contains("quota"))
+    }
+
+    @Test
+    fun closedAnonymousLanePointsToKey() {
+        // Exact gateway shape since the anonymous free tier closed.
+        val raw = "{\"type\":\"error\",\"error\":{\"type\":\"FreeTierError\"," +
+            "\"message\":\"Error from provider (Console): OpenCode's free tier " +
+            "can only be used from within OpenCode\"}}"
+        val out = AgentErrors.format(raw, "mimo-v2.5-free")
+        assertTrue(out, out.contains("mimo-v2.5-free"))
         assertTrue(out, out.contains("API key"))
+        assertTrue(out, out.contains("opencode.ai"))
+        assertFalse(out, out.contains("{"))
     }
 
     @Test

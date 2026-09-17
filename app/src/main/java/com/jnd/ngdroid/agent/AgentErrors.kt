@@ -45,22 +45,27 @@ object AgentErrors {
                 "$name is temporarily unavailable on the free tier. " +
                     "Open the model menu above and pick another free model."
             "rate limit" in low || "freeusagelimit" in low || "429" in low -> {
-                // Keyless free models share one anonymous lane that can be
-                // exhausted per model — name it and offer the key alternative.
+                // Free quotas are per-account now (no anonymous lane): the
+                // model's own free quota is spent — others may still work.
                 val id = model.trim().lowercase()
-                val anonymous = id.endsWith("-free") || id.endsWith(":free")
-                if (anonymous) {
-                    "The anonymous free lane for $name is exhausted right now " +
+                val free = id.endsWith("-free") || id.endsWith(":free")
+                if (free) {
+                    "The free quota for $name is exhausted right now " +
                         "(other free models may still work). Wait a bit and retry, " +
-                        "pick another free model — or add your provider API key in " +
-                        "Settings → AI Assistant for your own quota, same as the CLI uses."
+                        "pick another free model — or check your provider quota in " +
+                        "Settings → AI Assistant, same as the CLI uses."
                 } else {
                     "Free-tier limit reached. Wait a minute, then retry — or pick another free model."
                 }
             }
+            // Zen closed anonymous access: free tier only works under the
+            // user's own login/key, never keyless.
+            "freetiererror" in low || "only be used from within opencode" in low ->
+                "OpenCode closed anonymous free access — $name needs your Zen " +
+                    "API key (free at opencode.ai, paste it in Settings → AI Assistant)."
             "missing api key" in low || "autherror" in low ||
                 "unauthorized" in low || "invalid api key" in low || "401" in low ->
-                "This model needs your API key (Settings → AI Assistant) — or pick a FREE model instead."
+                "This model needs your API key (Settings → AI Assistant) — check the key or pick another model."
             "missingsessionid" in low ->
                 "Session handshake failed. Retry — if it keeps happening, reselect the model."
             "is not supported" in low || "modelerror" in low ->

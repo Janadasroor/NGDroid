@@ -20,8 +20,9 @@ import okhttp3.Request
  * Gateway behavior (probed live, encoded here so callers stay simple):
  * - Free-tier prompts require an `x-opencode-session: <any value>` header
  *   (MissingSessionID without it).
- * - No user key needed for free models: `Bearer public` routes the same as
- *   keyless (FreeUsageLimitError rather than AuthError).
+ * - Anonymous free access is closed (`FreeTierError` for keyless calls):
+ *   every model needs the user's own key; `-free` models then run on the
+ *   user's free quota. `Bearer public` remains only as a fallback value.
  * - Real API key required for non-free models (else AuthError "Missing API key").
  * - `muse-spark-*-free` only serve `/responses` (HTTP 500 on /chat/completions),
  *   so this provider routes per model family: spark → `/responses`,
@@ -472,10 +473,9 @@ class ZenProvider(
         const val PUBLIC_BEARER = "public"
 
         /**
-         * Client fingerprint the Zen gateway rate-limits on: anonymous calls
-         * with a stock HTTP UA get FreeUsageLimitError even when quota
-         * exists; the same call as `opencode/…` succeeds. Mirrors the CLI
-         * identity (`User-Agent: opencode/<version>`).
+         * Client identity: the gateway once granted anonymous free quota to
+         * `opencode/…` user agents, but that lane is now closed (FreeTierError
+         * regardless of UA). Kept as plain client identification.
          */
         const val OPENCODE_USER_AGENT = "opencode/1.0"
 

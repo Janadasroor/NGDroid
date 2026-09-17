@@ -167,7 +167,7 @@ class ZenProviderCopyTest {
     @Test
     fun clientFingerprintHeaders() {
         val h = ZenProvider.zenHeaders("", "spiceagent-01")
-        // Gateway rate-limits anonymous calls without the opencode UA.
+        // Client identity header (no longer unlocks anonymous quota).
         assertEquals("opencode/1.0", h["User-Agent"])
         assertTrue(h["User-Agent"]!!.startsWith("opencode/"))
         assertEquals("Bearer public", h["Authorization"])

@@ -902,15 +902,20 @@ class AssistantViewModel(
             )
             return true
         }
-        // Free Zen models work without any key (Bearer public + session header);
-        // anything else needs the provider key from Settings.
-        if (key.isEmpty() && zenNeedsKey(model)) {
+        // Zen closed its anonymous lane: every Zen model (including -free)
+        // needs the user's key from Settings; other providers always did.
+        if (key.isEmpty()) {
             appendToChat(
                 id,
                 ChatMsg(
                     role = ChatRoleUi.ASSISTANT,
-                    text = "This model needs your ${s.provider.displayName} API key. " +
-                        "Open Settings → AI Assistant and paste your key — or pick a FREE model."
+                    text = if (s.provider == AgentProvider.OPENCODE_ZEN) {
+                        "This model needs your OpenCode Zen API key (free at opencode.ai). " +
+                            "Open Settings → AI Assistant and paste it."
+                    } else {
+                        "This model needs your ${s.provider.displayName} API key. " +
+                            "Open Settings → AI Assistant and paste your key — or pick a FREE model."
+                    }
                 )
             )
             return true
@@ -963,29 +968,24 @@ class AssistantViewModel(
             return true
         }
         val key = s.activeApiKey()
-        if (key.isEmpty() && zenNeedsKey(model)) {
+        if (key.isEmpty()) {
             appendToChat(
                 id,
                 ChatMsg(
                     role = ChatRoleUi.ASSISTANT,
-                    text = "This model needs your ${s.provider.displayName} API key. " +
-                        "Open Settings → AI Assistant and paste your key — or pick a FREE model."
+                    text = if (s.provider == AgentProvider.OPENCODE_ZEN) {
+                        "This model needs your OpenCode Zen API key (free at opencode.ai). " +
+                            "Open Settings → AI Assistant and paste it."
+                    } else {
+                        "This model needs your ${s.provider.displayName} API key. " +
+                            "Open Settings → AI Assistant and paste your key — or pick a FREE model."
+                    }
                 )
             )
             return true
         }
         runAgentTurn(id, clean, s, key, model, simBridge, files)
         return true
-    }
-
-    /**
-     * True when the model needs the provider key: everything except free
-     * Zen (`-free`) ids — the keyed clouds and the Go subscription always
-     * need their key.
-     */
-    private fun zenNeedsKey(model: String): Boolean {
-        if (_settings.value.provider != AgentProvider.OPENCODE_ZEN) return true
-        return !model.trim().lowercase().endsWith("-free")
     }
 
     /** Regenerate the last answer: resend the most recent user prompt unchanged. */
