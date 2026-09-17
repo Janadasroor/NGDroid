@@ -68,6 +68,7 @@ import com.jnd.ngdroid.engine.PresetNetlist
 import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import com.jnd.ngdroid.ui.theme.LocalDialogShape
 import com.jnd.ngdroid.ui.util.LockOrientationWhileShown
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 
 @Composable
 fun SaveCircuitDialog(
@@ -268,7 +269,7 @@ fun ExamplesPickerDialog(
                             Icon(
                                 Icons.Default.SearchOff,
                                 contentDescription = null,
-                                modifier = Modifier.size(48.dp),
+                                modifier = Modifier.size(LocalAppSizes.current.iconButton),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.height(8.dp))

@@ -66,6 +66,7 @@ import com.jnd.ngdroid.data.AppSettings
 import com.jnd.ngdroid.data.SettingsRepository
 import com.jnd.ngdroid.data.ThemeMode
 import java.util.Locale
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 
 @Composable
 fun SettingsScreen(
@@ -173,7 +174,7 @@ fun SettingsScreen(
                                 onSettingsChanged { it.copy(accentColorTheme = accent) }
                             },
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(LocalAppSizes.current.iconButton)
                                 .semantics {
                                     contentDescription = "${accent.displayName} accent color"
                                     role = Role.RadioButton

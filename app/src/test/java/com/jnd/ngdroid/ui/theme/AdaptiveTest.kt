@@ -56,6 +56,20 @@ class AdaptiveTest {
         assert(compact.contentPadding < regular.contentPadding)
         assert(small.navLabelSize < regular.navLabelSize)
         assert(small.tableCellWidth < regular.tableCellWidth)
+        assert(small.iconButton < compact.iconButton)
+        assert(compact.iconButton < regular.iconButton)
+    }
+
+    @Test
+    fun largeFontsDropToTighterBucket() {
+        // 400dp phone with huge fonts behaves like a small screen.
+        assertEquals(WidthBucket.SMALL, widthBucketFor(400, 1.3f))
+        assertEquals(WidthBucket.SMALL, widthBucketFor(360, 1.3f))
+        // Normal fonts keep the physical bucket.
+        assertEquals(WidthBucket.COMPACT, widthBucketFor(400, 1f))
+        assertEquals(WidthBucket.COMPACT, widthBucketFor(360, 1f))
+        // Small fonts open up room.
+        assertEquals(WidthBucket.REGULAR, widthBucketFor(360, 0.85f))
     }
 
     @Test

@@ -32,23 +32,32 @@ import com.jnd.ngdroid.data.ButtonStyle
  * Responsive flow: one UI, metrics chosen by screen-width bucket so phones
  * big and small render at a visually consistent size.
  *
- * - SMALL (<340dp): tiny phones — tightest padding, smallest type.
- * - COMPACT (340–404dp): most phones — slightly tightened.
- * - REGULAR (>=405dp): baseline metrics (current look).
+ * The bucket uses the font-aware effective width (physical dp divided by the
+ * system font scale): a narrow phone and a wider phone with huge fonts both
+ * land in a tighter bucket. Geometry scales here; the type scale in
+ * appTypography() follows the same bucket with smaller base sizes.
+ *
+ * - SMALL (<340dp effective): tiny phones / large fonts — tightest padding,
+ *   smallest touch targets.
+ * - COMPACT (340–404dp effective): most phones — slightly tightened.
+ * - REGULAR (>=405dp effective): baseline metrics (current look).
  */
 enum class WidthBucket { SMALL, COMPACT, REGULAR }
 
 @Composable
 fun rememberWidthBucket(): WidthBucket {
-    val widthDp = LocalConfiguration.current.screenWidthDp
-    return widthBucketFor(widthDp)
+    val config = LocalConfiguration.current
+    return widthBucketFor(config.screenWidthDp, config.fontScale)
 }
 
 /** Pure bucket mapping — JVM-testable. */
-fun widthBucketFor(widthDp: Int): WidthBucket = when {
-    widthDp < 340 -> WidthBucket.SMALL
-    widthDp < 405 -> WidthBucket.COMPACT
-    else -> WidthBucket.REGULAR
+fun widthBucketFor(widthDp: Int, fontScale: Float = 1f): WidthBucket {
+    val effective = (widthDp / fontScale.coerceAtLeast(0.5f)).toInt()
+    return when {
+        effective < 340 -> WidthBucket.SMALL
+        effective < 405 -> WidthBucket.COMPACT
+        else -> WidthBucket.REGULAR
+    }
 }
 
 @Immutable
@@ -59,6 +68,8 @@ data class AppSizes(
     val emptyIcon: Dp,
     val emptyIconInner: Dp,
     val inputButton: Dp,
+    /** Standard icon-button touch target across all screens (never sp). */
+    val iconButton: Dp,
     val navLabelSize: TextUnit,
     val tableCellWidth: Dp
 )
@@ -71,6 +82,7 @@ fun appSizesFor(bucket: WidthBucket): AppSizes = when (bucket) {
         emptyIcon = 60.dp,
         emptyIconInner = 28.dp,
         inputButton = 44.dp,
+        iconButton = 40.dp,
         navLabelSize = 10.sp,
         tableCellWidth = 92.dp
     )
@@ -81,6 +93,7 @@ fun appSizesFor(bucket: WidthBucket): AppSizes = when (bucket) {
         emptyIcon = 68.dp,
         emptyIconInner = 32.dp,
         inputButton = 44.dp,
+        iconButton = 44.dp,
         navLabelSize = 10.5.sp,
         tableCellWidth = 104.dp
     )
@@ -91,6 +104,7 @@ fun appSizesFor(bucket: WidthBucket): AppSizes = when (bucket) {
         emptyIcon = 84.dp,
         emptyIconInner = 40.dp,
         inputButton = 48.dp,
+        iconButton = 48.dp,
         navLabelSize = 12.sp,
         tableCellWidth = 130.dp
     )

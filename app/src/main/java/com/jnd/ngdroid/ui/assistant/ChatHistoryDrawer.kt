@@ -64,6 +64,7 @@ import com.jnd.ngdroid.ui.theme.LocalButtonShape
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 
 /** Green presence dot: marks chats with a live background run. */
 private val WorkingGreen = Color(0xFF43A047)
@@ -185,7 +186,7 @@ fun ChatHistoryDrawer(
                         Icons.Default.ChatBubbleOutline,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(LocalAppSizes.current.iconButton)
                     )
                     Text(
                         if (sessions.isEmpty()) "No saved chats yet.\nStart a conversation to see it here."

@@ -79,6 +79,7 @@ import com.jnd.ngdroid.ui.share.queryShareTargets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -357,7 +358,7 @@ fun PlotScreen(
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(48.dp)
+                            .size(LocalAppSizes.current.iconButton)
                             .clip(CircleShape)
                             .combinedClickable(
                                 onClick = {
@@ -398,7 +399,7 @@ fun PlotScreen(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(LocalAppSizes.current.iconButton)
                                 .clip(CircleShape)
                                 .combinedClickable(
                                     onClick = {
@@ -542,7 +543,7 @@ fun PlotScreen(
                                 Box(
                                     contentAlignment = Alignment.Center,
                                     modifier = Modifier
-                                        .size(48.dp)
+                                        .size(LocalAppSizes.current.iconButton)
                                         .clip(CircleShape)
                                         .combinedClickable(
                                             onClick = {

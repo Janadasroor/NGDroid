@@ -103,6 +103,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.jnd.ngdroid.ui.theme.LocalAppSizes
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -402,7 +403,7 @@ fun NetlistEditorScreen(
                 IconButton(
                     onClick = { viewModel.undo() },
                     enabled = canUndo,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(LocalAppSizes.current.iconButton)
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Undo,
@@ -414,7 +415,7 @@ fun NetlistEditorScreen(
                 IconButton(
                     onClick = { viewModel.redo() },
                     enabled = canRedo,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(LocalAppSizes.current.iconButton)
                 ) {
                     Icon(
                         Icons.AutoMirrored.Filled.Redo,
@@ -435,20 +436,20 @@ fun NetlistEditorScreen(
                             showSaveDialog = true
                         }
                     },
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(LocalAppSizes.current.iconButton)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = "Save circuit")
                 }
 
                 com.jnd.ngdroid.ui.console.OpTableButton(
                     repository = repository,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(LocalAppSizes.current.iconButton)
                 )
 
                 Box {
                     IconButton(
                         onClick = { showMoreMenu = true },
-                        modifier = Modifier.size(48.dp)
+                        modifier = Modifier.size(LocalAppSizes.current.iconButton)
                     ) {
                         Icon(Icons.Default.MoreVert, contentDescription = "More editor actions")
                     }
@@ -637,7 +638,7 @@ fun NetlistEditorScreen(
                                             Row {
                                                 IconButton(
                                                     onClick = { renameTarget = item },
-                                                    modifier = Modifier.size(48.dp)
+                                                    modifier = Modifier.size(LocalAppSizes.current.iconButton)
                                                 ) {
                                                     Icon(
                                                         Icons.Default.DriveFileRenameOutline,
@@ -646,7 +647,7 @@ fun NetlistEditorScreen(
                                                 }
                                                 IconButton(
                                                     onClick = { deleteTarget = item },
-                                                    modifier = Modifier.size(48.dp)
+                                                    modifier = Modifier.size(LocalAppSizes.current.iconButton)
                                                 ) {
                                                     Icon(
                                                         Icons.Default.Delete,
