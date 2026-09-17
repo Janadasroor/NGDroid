@@ -31,6 +31,10 @@ gradle/gradle-daemon-jvm.properties
 # NDK / CMake generated
 app/.cxx/
 
+# Engine binaries are fetched at build time (see fetchViomatrixc);
+# never commit local copies dropped into the default jniLibs dir.
+app/src/main/jniLibs/
+
 # ngspice / simulation run artifacts accidentally generated in project root
 /*.data
 /*.plt

@@ -19,6 +19,112 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+import java.io.File
+import java.net.URI
+import java.security.MessageDigest
+import java.util.Properties
+
+// ---------------------------------------------------------------------------
+// VioMATRIXC simulation engine (libngspice.so).
+//
+// The engine is NOT built from source here: the app consumes pinned, audited
+// release binaries from https://github.com/Janadasroor/VioMATRIXC/releases
+// (version + SHA-256 in gradle/viomatrixc.properties). The JNI bridge loads
+// the library at runtime via dlopen, so the .so files only need to be present
+// at packaging time — this task stages them under build/ and wires the
+// directory as a jniLibs source. Nothing is committed to git and no
+// machine-specific paths are involved.
+//
+// Local override for engine development (skips download and checksum):
+//   ./gradlew :app:assembleDebug -PviomatrixcLocalDir=<dir>
+// or VIOMATRIXC_PREBUILT_DIR=<dir>, where <dir> holds
+// <abi>/libngspice.so per ABI (e.g. from compile_android.sh output).
+// ---------------------------------------------------------------------------
+val viomatrixcProps = Properties().apply {
+    rootProject.file("gradle/viomatrixc.properties").inputStream().use(::load)
+}
+val viomatrixcVersion: String =
+    (findProperty("viomatrixcVersion") as String?)
+        ?: System.getenv("VIOMATRIXC_VERSION")
+        ?: viomatrixcProps.getProperty("version").trim()
+val viomatrixcAbis = mapOf(
+    "arm64-v8a" to viomatrixcProps.getProperty("sha256.arm64-v8a").trim(),
+    "x86_64" to viomatrixcProps.getProperty("sha256.x86_64").trim(),
+)
+val viomatrixcLocalDir: String? =
+    (findProperty("viomatrixcLocalDir") as String?)
+        ?: System.getenv("VIOMATRIXC_PREBUILT_DIR")
+val viomatrixcStaging = layout.buildDirectory.dir("viomatrixc/$viomatrixcVersion")
+
+val fetchViomatrixc by tasks.registering {
+    group = "build"
+    description = "Stage pinned VioMATRIXC libngspice.so binaries (SHA-256 verified)."
+    // NOTE: configuration-cache compatibility — the action below may only use
+    // task inputs/outputs (serializable snapshots), never script-level vals or
+    // functions, because the script object itself is not serializable.
+    inputs.property("engineVersion", viomatrixcVersion)
+    inputs.property("engineAbis", HashMap(viomatrixcAbis))
+    inputs.property("engineLocalDir", viomatrixcLocalDir ?: "")
+    outputs.dir(viomatrixcStaging)
+    doLast {
+        fun sha256Of(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buf = ByteArray(8192)
+                var n: Int
+                while (input.read(buf).also { n = it } > 0) digest.update(buf, 0, n)
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+        val version = inputs.properties["engineVersion"] as String
+        @Suppress("UNCHECKED_CAST")
+        val abis = inputs.properties["engineAbis"] as Map<String, String>
+        val localDir = (inputs.properties["engineLocalDir"] as String).ifEmpty { null }
+        val dest = outputs.files.singleFile
+        val local = localDir?.let(::File)?.takeIf { it.isDirectory }
+        if (local != null) {
+            logger.lifecycle("Using local VioMATRIXC binaries from $local (checksum skipped).")
+        }
+        for ((abi, sha) in abis) {
+            val out = dest.resolve("$abi/libngspice.so")
+            if (out.isFile && sha256Of(out).equals(sha, ignoreCase = true)) continue
+            if (local != null) {
+                val src = local.resolve("$abi/libngspice.so")
+                require(src.isFile) { "Local override is missing $abi/libngspice.so in $local." }
+                src.copyTo(out, overwrite = true)
+            } else {
+                val url =
+                    "https://github.com/Janadasroor/VioMATRIXC/releases/download/" +
+                        "v$version/libngspice-$abi.so"
+                logger.lifecycle("Downloading $url")
+                try {
+                    out.parentFile.mkdirs()
+                    URI(url).toURL().openStream().use { input ->
+                        out.outputStream().use { output -> input.copyTo(output) }
+                    }
+                } catch (e: Exception) {
+                    throw GradleException(
+                        "Could not download VioMATRIXC $abi engine binary. " +
+                            "Check your connection, or point -PviomatrixcLocalDir " +
+                            "(or VIOMATRIXC_PREBUILT_DIR) at a local build. " +
+                            "Cause: ${e.message}"
+                    )
+                }
+                val actual = sha256Of(out)
+                if (!actual.equals(sha, ignoreCase = true)) {
+                    out.delete()
+                    throw GradleException(
+                        "SHA-256 mismatch for VioMATRIXC $abi binary " +
+                            "(pinned in gradle/viomatrixc.properties). " +
+                            "Expected $sha, got $actual. " +
+                            "Update the pin file from the release's SHA256SUMS.txt."
+                    )
+                }
+            }
+        }
+    }
+}
+
 android {
     namespace = "com.jnd.ngdroid"
     compileSdk {
@@ -44,9 +150,19 @@ android {
         }
         ndk {
             // 32-bit armeabi-v7a covers low-RAM Android 8.0 (Go) devices.
-            // Requires 32-bit libngspice.so; without it those devices use the built-in engine.
+            // No 32-bit engine prebuilt is published, so those devices use
+            // the built-in engine; arm64 + x86_64 get VioMATRIXC via
+            // fetchViomatrixc (staged under build/, wired below).
             abiFilters.addAll(listOf("armeabi-v7a", "arm64-v8a", "x86_64"))
         }
+    }
+
+    sourceSets {
+        // Eager File (not a Provider): the staging path is deterministic,
+        // and the legacy SourceSet API rejects Provider instances.
+        getByName("main").jniLibs.directories.add(
+            viomatrixcStaging.get().asFile.absolutePath
+        )
     }
 
     splits {
@@ -79,6 +195,9 @@ android {
         compose = true
     }
 }
+
+// Engine binaries must be staged before any packaging step.
+tasks.named("preBuild") { dependsOn(fetchViomatrixc) }
 
 // Friendly APK names: NGDroid-v1.0-debug-universal.apk instead of app-*.apk.
 androidComponents {

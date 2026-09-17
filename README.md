@@ -12,9 +12,10 @@ NGDroid is an Android circuit simulation application built around a native SPICE
 
 ### Simulation engine
 
-- Native ngspice integration through JNI (`libngspice`), with automatic fallback to a built-in engine when the native library is unavailable for the device ABI.
+- VioMATRIXC integration through JNI (`libngspice`), with automatic fallback to a built-in engine when the native library is unavailable for the device ABI. VioMATRIXC is an ngspice-based simulation engine maintained alongside this project at [Janadasroor/VioMATRIXC](https://github.com/Janadasroor/VioMATRIXC).
+- The engine is not built from source here: the Gradle `fetchViomatrixc` task downloads pinned, SHA-256-verified release binaries (version in `gradle/viomatrixc.properties`) at build time. No engine binaries are committed to this repository and no local paths are required. Engine developers can point `-PviomatrixcLocalDir` (or `VIOMATRIXC_PREBUILT_DIR`) at a local build instead.
 - Pre-decimated waveform data for smooth rendering of large transient analyses.
-- Supported ABIs: `armeabi-v7a`, `arm64-v8a`, `x86_64`.
+- Supported ABIs: `armeabi-v7a` (built-in engine), `arm64-v8a`, `x86_64` (VioMATRIXC).
 
 ### Waveform plot
 
