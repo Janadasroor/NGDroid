@@ -224,7 +224,14 @@ fun PlotScreen(
                 showSignalPicker = false
                 measureTrace(name)
             },
-            onDismiss = { showSignalPicker = false }
+            onDismiss = { showSignalPicker = false },
+            onStats = { name ->
+                allData.firstOrNull { it.name == name }?.let { vec ->
+                    selectedMeasurements = plot?.scaleVector?.let { scale ->
+                        measureUseCase(scale, vec)
+                    }
+                }
+            }
         )
     }
 
@@ -522,7 +529,10 @@ fun PlotScreen(
                             dataVectors = allData,
                             activeVectors = combinedActive,
                             darkPlotBackground = settings.darkPlotBackground,
-                            onDoubleClickTrace = ::measureTrace
+                            onDoubleClickTrace = ::measureTrace,
+                            onLongClickTrace = { vec ->
+                                selectedMeasurements = measureUseCase(plot.scaleVector, vec)
+                            }
                         )
                     }
                 }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -325,7 +326,9 @@ fun SignalPickerDialog(
     activeVectors: Set<String>,
     selectedName: String?,
     onPick: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Per-row stats: full RMS/avg dialog without leaving the picker. */
+    onStats: (String) -> Unit = {}
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -374,6 +377,13 @@ fun SignalPickerDialog(
                                     color = MaterialTheme.colorScheme.primary
                                 )
                             }
+                            IconButton(onClick = { onStats(name) }) {
+                                Icon(
+                                    Icons.Default.Info,
+                                    contentDescription = "Stats for $name",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
@@ -393,7 +403,9 @@ fun PlotLegend(
     darkPlotBackground: Boolean,
     modifier: Modifier = Modifier,
     /** Double-tap a net name: measure it with the cursors. */
-    onDoubleClickTrace: (String) -> Unit = {}
+    onDoubleClickTrace: (String) -> Unit = {},
+    /** Long-press a net name: full RMS/avg stats dialog. */
+    onLongClickTrace: (VectorSeries) -> Unit = {}
 ) {
     val activeDataVecs = dataVectors.filter { activeVectors.contains(it.name) }
     val hasCurrentVecs = activeDataVecs.any { it.isCurrent }
@@ -419,7 +431,8 @@ fun PlotLegend(
                 Row(
                     modifier = Modifier.combinedClickable(
                         onClick = {},
-                        onDoubleClick = { onDoubleClickTrace(vec.name) }
+                        onDoubleClick = { onDoubleClickTrace(vec.name) },
+                        onLongClick = { onLongClickTrace(vec) }
                     ),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
