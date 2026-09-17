@@ -23,9 +23,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -108,7 +110,7 @@ private fun Modifier.keepComposed(visible: Boolean): Modifier = layout { measura
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MainScreen(
     simulationViewModel: SimulationViewModel = viewModel(),
@@ -172,6 +174,14 @@ fun MainScreen(
     // Fullscreen plot keeps maximum area (no rail either).
     val showRail = isPhoneLandscape && !isFullscreenPlot
 
+    // Keyboard accounting: the window is not resized for the keyboard here,
+    // so the full IME inset does the lifting. While the Assistant is typing,
+    // content goes full-bleed (no Scaffold tab/nav reserves hiding behind
+    // the keyboard) and the input bar rides imePadding() exactly onto the
+    // keyboard top. All other tabs keep standard Scaffold insets untouched.
+    val imeOpen = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    val assistantKb = imeOpen && selectedTab == AppTab.ASSISTANT
+
     NGDroidTheme(darkTheme = isDark, accent = primaryColor) {
         CompositionLocalProvider(
             LocalButtonShape provides remember(settings.buttonStyle) {
@@ -199,7 +209,7 @@ fun MainScreen(
             bottomBar = {
                 // Phone landscape: no bottom bar (rail takes over).
                 // Tablets keep it in landscape; fullscreen plot hides it everywhere.
-                if (!isPhoneLandscape && !isFullscreenPlot) {
+                if (!isPhoneLandscape && !isFullscreenPlot && !assistantKb) {
                     // Six destinations must fit 320dp+ screens: single-line
                     // labels at the bucket size, truncated instead of wrapping.
                     val navLabel = MaterialTheme.typography.labelMedium.copy(
@@ -293,9 +303,18 @@ fun MainScreen(
             }
             // Rail + fullscreen bleed edge-to-edge so the side container
             // runs the full screen height (no sharp corners at top/bottom).
+            // Assistant-typing mode likewise bleeds: the input bar already
+            // carries the full keyboard inset via imePadding(), so any
+            // Scaffold reserve here would stack on top of it and float the
+            // field above the keyboard.
             Surface(
-                modifier = if (showRail || isFullscreenPlot) Modifier.fillMaxSize()
-                else Modifier.padding(innerPadding)
+                modifier = if (showRail || isFullscreenPlot || assistantKb) {
+                    Modifier.fillMaxSize().then(
+                        if (assistantKb) Modifier.statusBarsPadding() else Modifier
+                    )
+                } else {
+                    Modifier.padding(innerPadding)
+                }
             ) {
                 if (showRail) {
                     Row(Modifier.fillMaxSize()) {
