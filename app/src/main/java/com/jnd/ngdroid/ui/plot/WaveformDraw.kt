@@ -118,6 +118,36 @@ fun cursorDataX(
 }
 
 /**
+ * Cursor data-X pair for both fractions: one place so the readout, the
+ * ranged stats and the canvas dots all agree. Null when the scale is empty.
+ * Pure; JVM-testable.
+ */
+fun cursorDataRange(
+    scaleValues: List<Double>,
+    isLogX: Boolean,
+    cursor1Frac: Float,
+    cursor2Frac: Float,
+    zoomScaleX: Float,
+    panOffsetX: Float,
+    graphWidth: Float
+): Pair<Double, Double>? {
+    if (scaleValues.isEmpty()) return null
+    val xMin = scaleValues.first()
+    val xMax = scaleValues.last()
+    val xMinLog = log10(max(1e-12, xMin))
+    val xMaxLog = log10(max(1e-12, xMax))
+    val xRange = if (xMax > xMin) (xMax - xMin) / zoomScaleX else xMax - xMin
+    val xRangeLog = if (xMaxLog > xMinLog) (xMaxLog - xMinLog) / zoomScaleX else 1.0
+    return cursorDataX(
+        cursor1Frac, xMin, xRange, xMinLog, xRangeLog,
+        panOffsetX, graphWidth, isLogX
+    ) to cursorDataX(
+        cursor2Frac, xMin, xRange, xMinLog, xRangeLog,
+        panOffsetX, graphWidth, isLogX
+    )
+}
+ 
+/**
  * Y at data [x] by linear interpolation between bracketing finite samples.
  * Clamps to the nearest finite endpoint outside the range; null when the
  * series is empty, mismatched, or has no finite samples nearby. Pure.

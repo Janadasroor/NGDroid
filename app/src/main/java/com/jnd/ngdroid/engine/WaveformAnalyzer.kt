@@ -12,16 +12,50 @@ data class NetMeasurements(
     val avgVal: Double,
     val rmsVal: Double,
     val estimatedPeriod: Double? = null,
-    val estimatedFreqHz: Double? = null
+    val estimatedFreqHz: Double? = null,
+    /** Set when stats cover a cursor window rather than the whole trace. */
+    val rangeLabel: String? = null
 )
 
 object WaveformAnalyzer {
     fun calculateMeasurements(
         scaleVector: VectorSeries?,
         dataVector: VectorSeries
+    ): NetMeasurements = calculateCore(
+        netName = dataVector.name,
+        xs = scaleVector?.values?.takeIf { it.size == dataVector.values.size },
+        ys = dataVector.values,
+        rangeLabel = null
+    )
+
+    /**
+     * Stats over samples whose scale value falls in [xFrom, xTo] (e.g. a
+     * cursor window). Empty window yields a zero-count result; a missing or
+     * mismatched scale falls back to the full trace. Pure.
+     */
+    fun calculateRangeMeasurements(
+        scaleVector: VectorSeries?,
+        dataVector: VectorSeries,
+        xFrom: Double,
+        xTo: Double,
+        rangeLabel: String? = null
     ): NetMeasurements {
-        val vals = dataVector.values
-        if (vals.isEmpty()) {
+        val xs = scaleVector?.values
+        val ys = dataVector.values
+        if (xs == null || xs.size != ys.size || ys.isEmpty()) {
+            return calculateCore(dataVector.name, null, ys, rangeLabel)
+        }
+        val lo = minOf(xFrom, xTo)
+        val hi = maxOf(xFrom, xTo)
+        val fxs = mutableListOf<Double>()
+        val fys = mutableListOf<Double>()
+        for (i in xs.indices) {
+            if (xs[i] in lo..hi) {
+                fxs.add(xs[i])
+                fys.add(ys[i])
+            }
+        }
+        if (fys.isEmpty()) {
             return NetMeasurements(
                 netName = dataVector.name,
                 count = 0,
@@ -29,7 +63,30 @@ object WaveformAnalyzer {
                 maxVal = 0.0,
                 peakToPeak = 0.0,
                 avgVal = 0.0,
-                rmsVal = 0.0
+                rmsVal = 0.0,
+                rangeLabel = rangeLabel
+            )
+        }
+        return calculateCore(dataVector.name, fxs, fys, rangeLabel)
+    }
+
+    private fun calculateCore(
+        netName: String,
+        xs: List<Double>?,
+        ys: List<Double>,
+        rangeLabel: String?
+    ): NetMeasurements {
+        val vals = ys
+        if (vals.isEmpty()) {
+            return NetMeasurements(
+                netName = netName,
+                count = 0,
+                minVal = 0.0,
+                maxVal = 0.0,
+                peakToPeak = 0.0,
+                avgVal = 0.0,
+                rmsVal = 0.0,
+                rangeLabel = rangeLabel
             )
         }
 
@@ -54,8 +111,8 @@ object WaveformAnalyzer {
         var period: Double? = null
         var freq: Double? = null
 
-        if (scaleVector != null && scaleVector.values.size == count && count > 4) {
-            val times = scaleVector.values
+        if (xs != null && xs.size == count && count > 4) {
+            val times = xs
             val crossings = mutableListOf<Double>()
 
             for (i in 0 until count - 1) {
@@ -84,7 +141,7 @@ object WaveformAnalyzer {
         }
 
         return NetMeasurements(
-            netName = dataVector.name,
+            netName = netName,
             count = count,
             minVal = minV,
             maxVal = maxV,
@@ -92,7 +149,8 @@ object WaveformAnalyzer {
             avgVal = avgV,
             rmsVal = rmsV,
             estimatedPeriod = period,
-            estimatedFreqHz = freq
+            estimatedFreqHz = freq,
+            rangeLabel = rangeLabel
         )
     }
 }

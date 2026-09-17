@@ -12,4 +12,17 @@ class CalculateMeasurementsUseCase {
     ): NetMeasurements {
         return WaveformAnalyzer.calculateMeasurements(scaleVector, dataVector)
     }
+
+    /** Stats over the cursor window [xFrom, xTo] instead of the whole trace. */
+    fun invokeRange(
+        scaleVector: VectorSeries?,
+        dataVector: VectorSeries,
+        xFrom: Double,
+        xTo: Double,
+        rangeLabel: String? = null
+    ): NetMeasurements {
+        return WaveformAnalyzer.calculateRangeMeasurements(
+            scaleVector, dataVector, xFrom, xTo, rangeLabel
+        )
+    }
 }

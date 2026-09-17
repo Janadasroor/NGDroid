@@ -81,4 +81,60 @@ class WaveformAnalyzerTest {
         assertEquals(100.0, result.estimatedFreqHz!!, 10.0)
         assertEquals(0.01, result.estimatedPeriod!!, 0.002)
     }
+
+    @Test
+    fun rangeWindow_limitsSamplesToCursorSpan() {
+        // 0..10 s ramp 0..100: window [2,4] keeps ~1/5 of the samples,
+        // min/max/avg describe the window, not the trace.
+        val times = List(101) { it * 0.1 }
+        val values = List(101) { it.toDouble() }
+        val scale = VectorSeries(name = "time", values = times)
+        val data = VectorSeries(name = "v(out)", values = values)
+
+        val full = WaveformAnalyzer.calculateMeasurements(scale, data)
+        assertEquals(101, full.count)
+        assertEquals(50.0, full.avgVal, 1e-9)
+
+        val win = WaveformAnalyzer.calculateRangeMeasurements(
+            scale, data, 2.0, 4.0, rangeLabel = "Between cursors"
+        )
+        assertEquals(21, win.count)
+        assertEquals(20.0, win.minVal, 1e-9)
+        assertEquals(40.0, win.maxVal, 1e-9)
+        assertEquals(30.0, win.avgVal, 1e-9)
+        assertEquals("Between cursors", win.rangeLabel)
+    }
+
+    @Test
+    fun rangeWindow_reversedCursorsStillWork() {
+        val times = List(11) { it.toDouble() }
+        val values = List(11) { it * 2.0 }
+        val scale = VectorSeries(name = "time", values = times)
+        val data = VectorSeries(name = "v(out)", values = values)
+        // C2 left of C1: same window either way.
+        val win = WaveformAnalyzer.calculateRangeMeasurements(scale, data, 8.0, 4.0)
+        assertEquals(5, win.count)
+        assertEquals(8.0, win.minVal, 1e-9)
+        assertEquals(16.0, win.maxVal, 1e-9)
+    }
+
+    @Test
+    fun rangeWindow_emptySpanYieldsZeroCount() {
+        val times = List(11) { it.toDouble() }
+        val values = List(11) { it.toDouble() }
+        val scale = VectorSeries(name = "time", values = times)
+        val data = VectorSeries(name = "v(out)", values = values)
+        val win = WaveformAnalyzer.calculateRangeMeasurements(scale, data, 50.0, 60.0)
+        assertEquals(0, win.count)
+        assertEquals(0.0, win.rmsVal, 1e-12)
+    }
+
+    @Test
+    fun rangeWindow_withoutScaleFallsBackToFullTrace() {
+        val values = List(11) { it.toDouble() }
+        val data = VectorSeries(name = "v(out)", values = values)
+        val win = WaveformAnalyzer.calculateRangeMeasurements(null, data, 2.0, 4.0)
+        assertEquals(11, win.count)
+        assertEquals(5.0, win.avgVal, 1e-9)
+    }
 }

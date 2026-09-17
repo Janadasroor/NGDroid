@@ -124,10 +124,39 @@ fun PlotScreen(
     }
     // Dots + readout follow the pick only while it is still active.
     val effectiveMeasured = measuredTraceName?.takeIf { it in combinedActive }
+    // Cursor data-X pair, shared by the readout and the long-press stats.
+    val cursorXs: Pair<Double, Double>? = remember(
+        plot?.scaleVector, cursor1Frac, cursor2Frac,
+        zoomScaleX, panOffsetX, graphWidthPx
+    ) {
+        val scale = plot?.scaleVector ?: return@remember null
+        cursorDataRange(
+            scale.values,
+            scale.name.equals("frequency", ignoreCase = true),
+            cursor1Frac, cursor2Frac, zoomScaleX, panOffsetX, graphWidthPx
+        )
+    }
     fun toggleMathDialog() {
         showMathDialog = true
     }
     val measureUseCase = remember { CalculateMeasurementsUseCase() }
+    /**
+     * Long-press on the cursor button: full stats for the measured signal
+     * over the cursor window only. Needs placed cursors; without a pick it
+     * opens the signal picker instead.
+     */
+    fun cursorLongPress() {
+        if (!showCursors) return
+        val measured = effectiveMeasured ?: run { showSignalPicker = true; return }
+        val vec = allData.firstOrNull { it.name == measured } ?: return
+        val (x1, x2) = cursorXs ?: return
+        val scale = plot?.scaleVector ?: return
+        val unit = if (scale.name.equals("frequency", ignoreCase = true)) "Hz" else "s"
+        selectedMeasurements = measureUseCase.invokeRange(
+            scale, vec, x1, x2,
+            rangeLabel = "Between cursors: ${formatEng(x1, unit)} … ${formatEng(x2, unit)}"
+        )
+    }
     val exportUseCase = remember { ExportPlotUseCase() }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -301,13 +330,24 @@ fun PlotScreen(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     com.jnd.ngdroid.ui.console.OpTableButton(repository = repository)
-                    IconButton(onClick = {
-                        if (showCursors) showCursors = false
-                        else showSignalPicker = true
-                    }) {
+                    // Tap toggles cursors (via the signal picker); long-press
+                    // opens windowed stats for the measured signal.
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .combinedClickable(
+                                onClick = {
+                                    if (showCursors) showCursors = false
+                                    else showSignalPicker = true
+                                },
+                                onLongClick = { cursorLongPress() }
+                            )
+                    ) {
                         Icon(
                             Icons.Default.CenterFocusWeak,
-                            contentDescription = "Cursors",
+                            contentDescription = "Cursors (long-press: stats between cursors)",
                             tint = if (showCursors) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -477,13 +517,22 @@ fun PlotScreen(
                                     .padding(8.dp),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
-                                IconButton(onClick = {
-                                    if (showCursors) showCursors = false
-                                    else showSignalPicker = true
-                                }) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(48.dp)
+                                        .clip(CircleShape)
+                                        .combinedClickable(
+                                            onClick = {
+                                                if (showCursors) showCursors = false
+                                                else showSignalPicker = true
+                                            },
+                                            onLongClick = { cursorLongPress() }
+                                        )
+                                ) {
                                     Icon(
                                         Icons.Default.CenterFocusWeak,
-                                        contentDescription = "Cursors",
+                                        contentDescription = "Cursors (long-press: stats between cursors)",
                                         tint = if (showCursors) MaterialTheme.colorScheme.primary else Color.White
                                     )
                                 }

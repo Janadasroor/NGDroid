@@ -51,6 +51,13 @@ fun NetMeasurementsDialog(
                     color = MaterialTheme.colorScheme.primary,
                     fontWeight = FontWeight.Bold
                 )
+                if (measurements.rangeLabel != null) {
+                    Text(
+                        text = measurements.rangeLabel,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         },
         text = {

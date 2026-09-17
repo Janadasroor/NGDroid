@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.jnd.ngdroid.engine.VectorSeries
 import kotlin.math.abs
-import kotlin.math.max
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -203,23 +202,13 @@ fun CursorReadoutBar(
     onPickSignal: () -> Unit = {}
 ) {
     if (scaleVector.values.isEmpty()) return
-    val xMin = scaleVector.values.first()
-    val xMax = scaleVector.values.last()
     val isLogX = scaleVector.name.equals("frequency", ignoreCase = true)
     val unitStr = if (isLogX) "Hz" else "s"
-    val xMinLog = kotlin.math.log10(max(1e-12, xMin))
-    val xMaxLog = kotlin.math.log10(max(1e-12, xMax))
-    val xRange = if (xMax > xMin) (xMax - xMin) / zoomScaleX else xMax - xMin
-    val xRangeLog = if (xMaxLog > xMinLog) (xMaxLog - xMinLog) / zoomScaleX else 1.0
 
-    val x1 = cursorDataX(
-        cursor1Frac, xMin, xRange, xMinLog, xRangeLog,
-        panOffsetX, graphWidthPx, isLogX
-    )
-    val x2 = cursorDataX(
-        cursor2Frac, xMin, xRange, xMinLog, xRangeLog,
-        panOffsetX, graphWidthPx, isLogX
-    )
+    val (x1, x2) = cursorDataRange(
+        scaleVector.values, isLogX, cursor1Frac, cursor2Frac,
+        zoomScaleX, panOffsetX, graphWidthPx
+    ) ?: return
 
     val dx = abs(x2 - x1)
     val freqHz = if (isLogX) 0.0 else (if (dx > 0) 1.0 / dx else 0.0)
