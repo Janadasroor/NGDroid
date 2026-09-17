@@ -100,7 +100,9 @@ Issues and pull requests are welcome. Please run the unit tests and lint before 
 
 ## License
 
-A license for this project has not been selected yet. Until one is added, all rights are reserved by the author.
+This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) file for the full text.
+
+Copyright 2026 Janada Sroor.
 
 ## Author
 
